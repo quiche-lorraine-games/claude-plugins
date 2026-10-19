@@ -24,14 +24,16 @@ ce projet (GDD, piliers, code existant) priment sur le référentiel.
 ## Contenu
 
 ```
-fondamentaux/   boucles de gameplay, cadres théoriques (MDA, flow, SDT…), principes de conception
+fondamentaux/   boucles de gameplay, cadres théoriques (MDA, flow, SDT…), principes de conception,
+                profils de joueurs
 ressenti/       game feel et juice, contrôles et mouvement, caméra
 systemes/       combat, IA ennemie, progression, économie, équilibrage et difficulté,
                 aléatoire et génération procédurale, multijoueur
 contenu/        level design, narration, onboarding et tutoriels
 interface/      UI/UX et HUD, audio, accessibilité
 genres/         plateforme, shooter, roguelike, puzzle, RPG, stratégie, survie-crafting, deckbuilder
-production/     processus et prototypage, playtest et métriques, gabarits (GDD, fiche mécanique, rapport de playtest)
+production/     processus et prototypage, rendre un jeu playtestable, playtest et métriques,
+                gabarits (GDD, fiche mécanique, persona, plan et rapport de playtest)
 glossaire.md    vocabulaire du game design
 sources.md      livres, talks et articles de référence
 ```

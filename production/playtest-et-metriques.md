@@ -20,13 +20,13 @@
 - « Le boss est-il perçu comme juste ? »
 
 **Choisir les testeurs** :
-- Proches du **public cible** (genre habituel, niveau d'expérience).
+- Proches du **public cible** (genre habituel, niveau d'expérience, motivations : voir [Profils de joueurs](../fondamentaux/profils-de-joueurs.md)).
 - **Nouveaux** testeurs pour tester la compréhension et l'onboarding : un testeur qui a déjà joué ne peut plus « désapprendre ».
 - Testeurs **récurrents** pour tester la profondeur, l'équilibrage et la progression longue.
 - L'équipe et les proches sont de mauvais testeurs pour la compréhension (biais de connaissance, biais de bienveillance).
 - Nombre : pour les problèmes d'utilisabilité, un petit nombre de testeurs (5 environ par itération, règle issue de l'UX logicielle, Nielsen) révèle la majorité des problèmes majeurs ; mieux vaut plusieurs petites sessions itératives qu'une grosse.
 
-**Préparer le build** : stable, avec télémétrie active, enregistrement vidéo de l'écran (et si possible du visage et des mains / manette), point de départ prévu.
+**Préparer le build** : stable, avec télémétrie active, enregistrement vidéo de l'écran (et si possible du visage et des mains / manette), point de départ prévu. La liste complète des points à vérifier est dans [Rendre un jeu playtestable](rendre-un-jeu-playtestable.md) ; le [plan de playtest](templates/plan-playtest.md) sert de feuille de préparation.
 
 ## 2. Pendant la session : observer sans guider
 
@@ -190,7 +190,10 @@ Telemetry.log("player_death", {
 
 ## Voir aussi
 
+- [Rendre un jeu playtestable](rendre-un-jeu-playtestable.md)
+- [Profils de joueurs](../fondamentaux/profils-de-joueurs.md)
 - [Processus et prototypage](processus-et-prototypage.md)
+- [Template plan de playtest](templates/plan-playtest.md)
 - [Template rapport de playtest](templates/rapport-playtest.md)
 - [Équilibrage et difficulté](../systemes/equilibrage-et-difficulte.md)
 - [Onboarding et tutoriels](../contenu/onboarding-tutoriels.md)

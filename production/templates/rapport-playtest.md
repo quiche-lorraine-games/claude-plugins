@@ -9,7 +9,7 @@ Voir : production/playtest-et-metriques.md
 
 **Build** : <!-- version / commit -->
 **Date(s)** : AAAA-MM-JJ
-**Testeurs** : <!-- nombre, profil (neufs / récurrents, public cible ?) -->
+**Testeurs** : <!-- nombre, profil (neufs / récurrents, public cible ? motivations : voir fondamentaux/profils-de-joueurs.md) -->
 **Format** : <!-- observé en présentiel / à distance / non modéré ; think aloud oui/non ; durée -->
 
 ## Objectifs de la session

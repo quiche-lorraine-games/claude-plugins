@@ -13,6 +13,7 @@
 - **Aléatoire d'entrée / de sortie** (*input / output randomness*) : hasard placé avant la décision du joueur (il s'y adapte) ou après (il la sanctionne). → [Aléatoire](systemes/aleatoire-et-procedural.md)
 - **Ancrage aux plateformes** (*platform snapping*) : en 2D, la caméra ne suit verticalement le joueur qu'à l'atterrissage. → [Caméra](ressenti/camera.md)
 - **Annonce d'attaque, télégraphie** (*telegraphing*) : signaux visuels et sonores qui précèdent un danger avant qu'il soit actif. → [Combat](systemes/combat.md)
+- **Anti-persona** : joueur qu'on décide de ne pas viser, pour trancher ce qu'on coupe. → [Profils de joueurs](fondamentaux/profils-de-joueurs.md)
 - **Anticipation** (*startup, windup*) : phase d'une attaque avant que la hitbox soit active ; elle rend l'attaque lisible. → [Combat](systemes/combat.md)
 - **Anticipation de caméra** (*lookahead*) : décalage de la caméra dans la direction du mouvement. → [Caméra](ressenti/camera.md)
 - **APM** (*actions per minute*) : nombre d'actions par minute, mesure de la vitesse d'exécution en RTS. → [Stratégie](genres/strategie.md)
@@ -28,6 +29,7 @@
 - **Boucle de compulsion** (*compulsion loop*) : boucle portée par une récompense extrinsèque répétée. → [Boucles](fondamentaux/boucles-de-gameplay.md)
 - **Boucle de maîtrise** (*mastery loop*) : boucle portée par l'amélioration de la compétence du joueur. → [Boucles](fondamentaux/boucles-de-gameplay.md)
 - **Boule de neige** (*snowballing*) : avantage précoce qui s'amplifie jusqu'à décider la partie. → [Multijoueur](systemes/multijoueur.md)
+- **BrainHex** : typologie à 7 archétypes (Seeker, Survivor, Daredevil, Mastermind, Conqueror, Socialiser, Achiever), utile comme grille mais peu validée. → [Profils de joueurs](fondamentaux/profils-de-joueurs.md)
 - **Bras de caméra** (*spring arm*) : bras qui place la caméra derrière le personnage en gérant les collisions. → [Caméra](ressenti/camera.md)
 
 ## C
@@ -55,6 +57,7 @@
 
 ## E
 
+- **Écologie des joueurs** : équilibre entre populations de profils dans un monde partagé, chaque population influençant les autres (Bartle). → [Profils de joueurs](fondamentaux/profils-de-joueurs.md)
 - **Effet de gradient d'objectif** (*goal-gradient effect*) : la motivation augmente à l'approche d'un but. → [Progression](systemes/progression.md)
 - **Embranchements qui se rejoignent** (*branch and bottleneck*) : branches narratives qui divergent puis reconvergent à des nœuds clés. → [Narration](contenu/narration.md)
 - **Émergence** (*emergence*) : situations non prévues qui naissent de l'interaction de règles simples. → [Principes](fondamentaux/principes-de-conception.md)
@@ -68,12 +71,14 @@
 - **Feature creep** : ajout continu de fonctionnalités qui fait dériver le périmètre. → [Processus](production/processus-et-prototypage.md)
 - **Fenêtre d'annulation** (*cancel window*) : moment où une action peut en interrompre une autre. → [Combat](systemes/combat.md)
 - **Fenêtre de caméra** (*camera window*) : cadre dans lequel le joueur bouge sans que la caméra le suive. → [Caméra](ressenti/camera.md)
+- **Fiero** : sentiment de triomphe après avoir surmonté une difficulté (Lazzaro). → [Profils de joueurs](fondamentaux/profils-de-joueurs.md)
 - **Flow** : état d'absorption quand le défi correspond à la compétence, avec but clair et retour immédiat. → [Cadres théoriques](fondamentaux/cadres-theoriques.md)
 - **Frames actives** (*active frames*) : fenêtre pendant laquelle une attaque peut toucher. → [Combat](systemes/combat.md)
 - **Funnel** (entonnoir) : suite d'étapes où l'on mesure la part de joueurs qui atteint chacune. → [Playtest](production/playtest-et-metriques.md)
 
 ## G
 
+- **Gamer Motivation Model** : modèle de Quantic Foundry à 12 motivations en 6 paires et 3 grappes. → [Profils de joueurs](fondamentaux/profils-de-joueurs.md)
 - **Gating** (verrouillage) : contrôle de l'accès à une zone par une clé, une capacité ou un événement. → [Level design](contenu/level-design.md)
 - **GOAP** (*Goal-Oriented Action Planning*) : planification d'une suite d'actions pour atteindre un but. → [IA ennemie](systemes/ia-ennemis.md)
 - **Graine** (*seed*) : valeur initiale d'un générateur pseudo-aléatoire ; la même graine reproduit la même génération. → [Aléatoire](systemes/aleatoire-et-procedural.md)
@@ -83,8 +88,10 @@
 
 ## H
 
+- **Hard / Easy / Serious / People Fun** : les 4 clés du fun de Lazzaro : défi, nouveauté, sens, relations. → [Profils de joueurs](fondamentaux/profils-de-joueurs.md)
 - **Hauteur de saut variable** (*variable jump height*) : la hauteur du saut dépend de la durée d'appui. → [Contrôles](ressenti/controles-et-mouvement.md)
 - **Heatmap** (carte de chaleur) : carte de densité des positions, morts ou trajets des joueurs. → [Playtest](production/playtest-et-metriques.md)
+- **Hexad** : 6 types d'utilisateurs de gamification (Achiever, Socialiser, Philanthropist, Free Spirit, Player, Disruptor). → [Profils de joueurs](fondamentaux/profils-de-joueurs.md)
 - **Hit stop** (*hit pause*) : gel de quelques frames à l'impact pour donner du poids. → [Combat](systemes/combat.md)
 - **Hit stun** : temps pendant lequel la cible touchée ne peut pas agir. → [Combat](systemes/combat.md)
 - **Hitbox / hurtbox** : volume qui inflige des dégâts / volume qui les reçoit, distincts de la collision physique. → [Combat](systemes/combat.md)
@@ -136,6 +143,7 @@
 ## P
 
 - **Penser à voix haute** (*think aloud*) : protocole de playtest où le joueur verbalise ce qu'il pense en jouant. → [Playtest](production/playtest-et-metriques.md)
+- **Persona** : joueur fictif représentatif du public cible, utilisé pour arbitrer les décisions. → [Profils de joueurs](fondamentaux/profils-de-joueurs.md)
 - **Piliers** (*design pillars*) : 3 à 5 phrases qui définissent l'expérience et servent à trier les fonctionnalités. → [Processus](production/processus-et-prototypage.md)
 - **Pity timer, protection contre la malchance** (*bad luck protection*) : garantie de succès, ou probabilité croissante, après N échecs. → [Aléatoire](systemes/aleatoire-et-procedural.md)
 - **Point d'étranglement** (*choke point*) : passage étroit où les forces se concentrent. → [Level design](contenu/level-design.md)
@@ -159,6 +167,8 @@
 - **SDT** (*Self-Determination Theory*) : théorie de la motivation fondée sur trois besoins : compétence, autonomie, appartenance. → [Cadres théoriques](fondamentaux/cadres-theoriques.md)
 - **Shuffle bag** (sac mélangé) : tirage sans remise qui garantit une répartition des résultats. → [Aléatoire](systemes/aleatoire-et-procedural.md)
 - **Skill atom** (atome de compétence) : unité d'apprentissage action → simulation → feedback → modèle mental (Daniel Cook). → [Onboarding](contenu/onboarding-tutoriels.md)
+- **Smoke test** (test de fumée) : vérification rapide que le build se lance et que le parcours principal fonctionne. → [Rendre un jeu playtestable](production/rendre-un-jeu-playtestable.md)
+- **Softlock** (blocage) : situation où le jeu tourne mais où le joueur ne peut plus progresser. → [Rendre un jeu playtestable](production/rendre-un-jeu-playtestable.md)
 - **Source / puits** (*faucet / sink*) : mécanisme qui crée / détruit une ressource dans l'économie. → [Économie](systemes/economie.md)
 - **Squash & stretch** (écrasement et étirement) : déformation du visuel d'un personnage pour exprimer l'élan et l'impact. → [Game feel](ressenti/game-feel-juice.md)
 - **Steering** (comportements de pilotage) : règles de déplacement local d'un agent (seek, flee, séparation…). → [IA ennemie](systemes/ia-ennemis.md)
@@ -171,8 +181,11 @@
 ## T
 
 - **Table de butin pondérée** (*weighted loot table*) : liste d'objets associés à des poids qui donnent leur probabilité de tirage. → [Économie](systemes/economie.md)
+- **Timmy, Johnny, Spike** : profils de *Magic: The Gathering* : vivre une expérience, s'exprimer, prouver. → [Profils de joueurs](fondamentaux/profils-de-joueurs.md)
+- **Traits de joueur** (*player traits*) : 5 orientations continues (esthétique, narration, objectifs, social, défi) mesurées par une échelle validée (Tondello et al.). → [Profils de joueurs](fondamentaux/profils-de-joueurs.md)
 - **Trauma** : valeur entre 0 et 1 qui s'accumule et décroît ; son carré pilote l'intensité du tremblement de caméra. → [Caméra](ressenti/camera.md)
 - **TTK / TTD** (*time to kill / time to die*) : temps pour éliminer une cible / temps pour mourir. → [Combat](systemes/combat.md)
+- **Types de Bartle** : Achiever, Explorer, Socializer, Killer ; 8 types avec l'axe implicite / explicite. → [Profils de joueurs](fondamentaux/profils-de-joueurs.md)
 
 ## U
 
@@ -183,6 +196,7 @@
 - **Verbe** (*verb*) : action de base que le joueur peut effectuer (sauter, tirer, ramasser). → [Boucles](fondamentaux/boucles-de-gameplay.md)
 - **Verrouillage de cible** (*lock-on*) : mode où la caméra et les actions sont orientées vers une cible choisie. → [Caméra](ressenti/camera.md)
 - **Vertical slice** (tranche verticale) : portion courte du jeu à qualité finale sur tous les plans. → [Processus](production/processus-et-prototypage.md)
+- **Vorthos / Mel** : profils esthétiques de *Magic* : sensible à l'univers / à l'élégance de la mécanique. → [Profils de joueurs](fondamentaux/profils-de-joueurs.md)
 
 ## W
 

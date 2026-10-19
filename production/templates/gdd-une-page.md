@@ -26,7 +26,7 @@ Voir : production/processus-et-prototypage.md, fondamentaux/boucles-de-gameplay.
 3.
 
 ## Public cible
-<!-- Qui ? Quelles motivations (2–3) ? Quels jeux de référence connaît-il ? -->
+<!-- Qui ? Quelles motivations (2–3) ? Quels jeux de référence connaît-il ? Voir fondamentaux/profils-de-joueurs.md et le gabarit persona-joueur.md. -->
 
 ## Plateforme, contrôles, session
 <!-- Plateforme(s), périphérique(s) d'entrée, durée de session visée, solo/multi. -->

@@ -82,6 +82,8 @@ Conditions pratiques du flow en jeu :
 
 ## 4. Types de joueurs et motivations
 
+> Résumé ici ; la fiche [Profils de joueurs](profils-de-joueurs.md) détaille tous les modèles (Bartle à 8 types, Quantic Foundry, BrainHex, traits de Tondello, Hexad, Lazzaro, Timmy/Johnny/Spike), leur solidité, et comment construire des personas.
+
 ### Bartle (1996)
 Quatre profils observés dans les MUD (jeux multijoueurs textuels), sur deux axes (agir sur / interagir avec ; le monde / les joueurs) :
 
@@ -179,6 +181,7 @@ Taxonomie des esthétiques issue du travail sur MDA :
 
 - [Boucles de gameplay](boucles-de-gameplay.md)
 - [Principes de conception](principes-de-conception.md)
+- [Profils de joueurs](profils-de-joueurs.md)
 - [Équilibrage et difficulté](../systemes/equilibrage-et-difficulte.md)
 - [Playtest et métriques](../production/playtest-et-metriques.md)
 

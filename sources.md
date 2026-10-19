@@ -14,7 +14,7 @@
 - Greg Costikyan, *Uncertainty in Games*, MIT Press, 2013.
 - Geoffrey Engelstein et Isaac Shalev, *Building Blocks of Tabletop Game Design*, CRC Press, 2019.
 
-## Cadres théoriques et motivation
+## Cadres théoriques, motivation et profils de joueurs
 
 - Robin Hunicke, Marc LeBlanc, Robert Zubek, « MDA: A Formal Approach to Game Design and Game Research », AAAI Workshop on Challenges in Game AI, 2004.
 - Mihaly Csikszentmihalyi, *Flow: The Psychology of Optimal Experience*, Harper & Row, 1990.
@@ -23,6 +23,21 @@
 - Scott Rigby et Richard Ryan, *Glued to Games*, Praeger, 2011.
 - Richard Bartle, « Hearts, Clubs, Diamonds, Spades: Players Who Suit MUDs », *Journal of MUD Research*, 1996.
 - Quantic Foundry (Nick Yee), *Gamer Motivation Model* — https://quanticfoundry.com
+- Richard Bartle, *Designing Virtual Worlds*, New Riders, 2003 (modèle à 8 types).
+- Nick Yee, « Motivations for Play in Online Games », *CyberPsychology & Behavior*, 9(6), 2006.
+- Quantic Foundry, « Map of Gaming Motivations », 2015 — https://quanticfoundry.com/2015/12/21/map-of-gaming-motivations/ ; analyse des écarts liés au genre et à l'âge, 2015 — https://quanticfoundry.com/2015/08/28/gender-differences-in-gaming/
+- Lennart Nacke, Chris Bateman, Regan Mandryk, « BrainHex: A Neurobiological Gamer Typology Survey », *Entertainment Computing*, 2014.
+- Marc Busch et al., « Player Type Models: Towards Empirical Validation », CHI EA 2016.
+- Gustavo F. Tondello et al., « Towards a Trait Model of Video Game Preferences », *International Journal of Human-Computer Interaction*, 2018 ; « "I Don't Fit into a Single Type": A Trait Model and Scale of Game Playing Preferences », INTERACT 2019 — https://playertraits.hcigames.com/
+- Andrzej Marczewski, *Even Ninja Monkeys Like to Play*, 2015 ; HEXAD — https://www.gamified.uk/user-types/
+- Gustavo F. Tondello et al., « The Gamification User Types Hexad Scale », CHI PLAY 2016 ; « Empirical validation of the Gamification User Types Hexad scale in English and Spanish », *International Journal of Human-Computer Studies*, 127, 2019.
+- « Do people's user types change over time? An exploratory study », 2021 — https://arxiv.org/abs/2106.10148
+- Nicole Lazzaro, « Why We Play Games: Four Keys to More Emotion Without Story », XEODesign, 2004.
+- Mark Rosewater, « Timmy, Johnny, and Spike », *Making Magic*, 2002 ; « Timmy, Johnny, and Spike Revisited », 2006 ; « Melvin and Vorthos », 2007.
+- Jesper Juul, *A Casual Revolution*, MIT Press, 2010.
+- Juho Hamari et Janne Tuunanen, « Player Types: A Meta-synthesis », *Transactions of the Digital Games Research Association*, 1(2), 2014 — https://todigra.org/index.php/todigra/article/view/1697
+- Jukka Vahlo et al., « Digital Game Dynamics Preferences and Player Types », *Journal of Computer-Mediated Communication*, 22(2), 2017.
+- Kirsi Pauliina Kallio, Frans Mäyrä, Kirsikka Kaipainen, « At Least Nine Ways to Play: Approaching Gamer Mentalities », *Games and Culture*, 6(4), 2011.
 - Daniel Cook, « The Chemistry of Game Design », Gamasutra, 2007 ; « Loops and Arcs », 2012 ; « Value chains », 2021 — https://lostgarden.com/
 - Sid Meier, « Interesting Decisions », GDC 2012 ; « The Psychology of Game Design (Everything You Know Is Wrong) », GDC 2010.
 
@@ -140,7 +155,7 @@
 - W3C, *WCAG 2.1* (critères 1.4.1, 1.4.3, 2.3.1).
 - ITU-R BT.1702 (flashs et risque photosensible).
 
-## Production, prototypage et playtest
+## Production, prototypage, playtest et builds de test
 
 - Chris Hecker et Chaim Gingold, « Advanced Prototyping », GDC 2006.
 - Kyle Gabler, Kyle Gray, Matt Kucic, Shalin Shodhan, « How to Prototype a Game in Under 7 Days », Gamasutra, 2005.
@@ -149,6 +164,10 @@
 - Magy Seif El-Nasr, Anders Drachen, Alessandro Canossa (dir.), *Game Analytics*, Springer, 2013.
 - Jakob Nielsen, « Why You Only Need to Test with 5 Users », Nielsen Norman Group, 2000.
 - Mark Rosewater, « Twenty Years, Twenty Lessons », GDC 2016 ; chroniques « Making Magic », Wizards of the Coast.
+- Steve Bromley, *How To Be A Games User Researcher*, 2021.
+- Valve, documentation Steamworks, « Steam Playtest » — https://partner.steamgames.com/doc/features/playtest
+- itch.io, documentation « Access control » — https://itch.io/docs/creators/access-control
+- Règlement (UE) 2016/679 (RGPD).
 
 ## Chaînes et ressources continues
 
