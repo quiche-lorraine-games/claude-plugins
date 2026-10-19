@@ -22,8 +22,12 @@ Règles pour ajouter ou modifier une fiche, qu'on soit humain ou agent.
 - **Gameplay ou présentation** : toujours préciser si un élément change la logique de jeu ou seulement son rendu.
 - Pas d'emoji. Markdown GitHub standard.
 
+## Emplacement
+
+Toutes les fiches vivent sous `skills/referentiel/`, dans le dossier thématique qui convient. Un fichier placé ailleurs ne serait pas installé avec le plugin.
+
 ## Après un ajout
 
-- Ajouter la fiche à la table de routage de [CLAUDE.md](CLAUDE.md) et à l'arborescence du [README.md](README.md).
-- Ajouter les nouveaux termes à [glossaire.md](glossaire.md) et les nouvelles références à [sources.md](sources.md).
-- Vérifier que les liens relatifs fonctionnent.
+- Ajouter la fiche à la table de routage de [SKILL.md](skills/referentiel/SKILL.md) et à l'arborescence du [README.md](README.md).
+- Ajouter les nouveaux termes à [glossaire.md](skills/referentiel/glossaire.md) et les nouvelles références à [sources.md](skills/referentiel/sources.md).
+- Vérifier que les liens relatifs fonctionnent et lancer `claude plugin validate .`.

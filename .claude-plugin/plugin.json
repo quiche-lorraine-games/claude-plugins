@@ -1,0 +1,9 @@
+{
+  "name": "game-design",
+  "description": "Référentiel de game design général en français : fiches thématiques (boucles, game feel, contrôles, combat, IA, progression, économie, équilibrage, level design, narration, UI/UX, audio, accessibilité, profils de joueurs, playtest), fiches genres et gabarits, à consulter pendant le développement d'un jeu.",
+  "author": {
+    "name": "Quiche Lorraine Games"
+  },
+  "repository": "https://github.com/quiche-lorraine-games/game-design",
+  "keywords": ["game-design", "gamedev", "playtest", "game-feel", "level-design"]
+}

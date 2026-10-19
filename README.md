@@ -1,44 +1,75 @@
 # game-design
 
-Référentiel de **game design général**, en français, pensé pour être attaché aux sessions de développement de jeux afin que les agents (Claude Code) s'en servent comme référence quand ils conçoivent, implémentent ou critiquent une mécanique.
+Plugin Claude Code qui fournit un référentiel de **game design général**, en français, pour que les agents s'en servent comme référence quand ils conçoivent, implémentent ou critiquent une mécanique, un système, un niveau, une interface ou un playtest.
 
-Chaque fiche suit le même format : résumé, situations où la consulter, règles concrètes et valeurs de départ, pièges, checklist, pistes d'implémentation, liens et sources. Le point d'entrée pour un agent est [CLAUDE.md](CLAUDE.md), qui contient la table de routage « tâche → fiche ».
+Le plugin contient :
+- **le skill `game-design:referentiel`** : une table de routage « tâche → fiche » et une quarantaine de fiches, dont 8 fiches genres, 5 gabarits, un glossaire et une bibliographie ;
+- **un hook de démarrage** qui rappelle à l'agent, en une phrase, que le référentiel existe et quand le charger.
 
-## Utiliser le référentiel dans un projet de jeu
+Chaque fiche suit le même format : résumé, situations où la consulter, règles concrètes et valeurs de départ, pièges, checklist, pistes d'implémentation, liens et sources.
 
-**Session Claude Code dans le cloud** : ajouter ce repo aux sources de la session, à côté du repo du jeu. Dans un Project, chaque session clone tous les repos du projet et charge leur `CLAUDE.md` et leurs skills : le skill `game-design` (dans `.claude/skills/`) devient disponible, et l'agent peut lire les fiches directement.
+## Installation
 
-**Claude Code en local** : cloner ce repo à côté du projet, puis l'ajouter avec `claude --add-dir ../game-design`, ou `/add-dir ../game-design` en cours de session. Le skill est alors chargé automatiquement, mais pas le `CLAUDE.md` de ce repo, sauf si la variable d'environnement `CLAUDE_CODE_ADDITIONAL_DIRECTORIES_CLAUDE_MD=1` est définie.
+Le repo sert aussi de marketplace (`quiche-lorraine-games`).
 
-**Dans tous les cas**, le plus fiable est d'ajouter ces lignes au `CLAUDE.md` du projet de jeu, pour que l'agent sache que le référentiel existe et quand s'en servir :
+**Claude Code en ligne de commande** (une fois par machine, valable pour tous les projets) :
+
+```bash
+claude plugin marketplace add quiche-lorraine-games/game-design
+claude plugin install game-design@quiche-lorraine-games
+```
+
+Ou depuis une session : `/plugin marketplace add quiche-lorraine-games/game-design`, puis `/plugin install game-design@quiche-lorraine-games`.
+
+Si le repo est privé, la machine doit pouvoir le cloner avec tes identifiants git habituels.
+
+**Sessions Claude Code dans le cloud** : les plugins activés seulement dans tes réglages locaux ne sont pas chargés dans le cloud. Deux possibilités :
+- dans un Project, l'ajouter dans les réglages du Project, rubrique Plugins ;
+- pour toute une organisation, l'activer dans les réglages gérés (*managed settings*) de l'organisation sur claude.ai, avec `extraKnownMarketplaces` et `enabledPlugins`.
+
+**Mise à jour** : le plugin n'a pas de numéro de version, l'installation suit donc les commits de la branche par défaut. Pour récupérer les nouveautés :
+
+```bash
+claude plugin marketplace update quiche-lorraine-games
+claude plugin update game-design@quiche-lorraine-games
+```
+
+En session : `/plugin marketplace update quiche-lorraine-games`, puis `/reload-plugins`. On peut aussi activer la mise à jour automatique de la marketplace dans `/plugin`, rubrique Marketplaces.
+
+## Utilisation
+
+Une fois le plugin installé, rien à faire : le hook de démarrage signale le référentiel à l'agent, qui charge le skill quand la tâche porte sur le jeu. On peut aussi le demander explicitement avec `/game-design:referentiel`.
+
+Pour un projet où le référentiel doit être systématiquement consulté, ajouter au `CLAUDE.md` du jeu :
 
 ```markdown
 ## Référentiel game design
-Un référentiel de game design général est disponible dans le repo `game-design`
-(attaché à la session, ou cloné dans `../game-design`). Avant de concevoir ou
-d'implémenter une mécanique, un système, un niveau ou une interface, lis son
-`CLAUDE.md` pour trouver la fiche pertinente et applique-la. Les décisions de
-ce projet (GDD, piliers, code existant) priment sur le référentiel.
+Avant de concevoir ou d'implémenter une mécanique, un système, un niveau ou une
+interface, charge le skill `game-design:referentiel` et applique la fiche
+pertinente. Les décisions de ce projet (GDD, piliers, code existant) priment
+sur le référentiel.
 ```
 
 ## Contenu
 
 ```
-fondamentaux/   boucles de gameplay, cadres théoriques (MDA, flow, SDT…), principes de conception,
-                profils de joueurs
-ressenti/       game feel et juice, contrôles et mouvement, caméra
-systemes/       combat, IA ennemie, progression, économie, équilibrage et difficulté,
-                aléatoire et génération procédurale, multijoueur
-contenu/        level design, narration, onboarding et tutoriels
-interface/      UI/UX et HUD, audio, accessibilité
-genres/         plateforme, shooter, roguelike, puzzle, RPG, stratégie, survie-crafting, deckbuilder
-production/     processus et prototypage, rendre un jeu playtestable, playtest et métriques,
-                gabarits (GDD, fiche mécanique, persona, plan et rapport de playtest)
-glossaire.md    vocabulaire du game design
-sources.md      livres, talks et articles de référence
+skills/referentiel/
+  SKILL.md        règles d'usage et table de routage
+  fondamentaux/   boucles de gameplay, cadres théoriques (MDA, flow, SDT…), principes de conception,
+                  profils de joueurs
+  ressenti/       game feel et juice, contrôles et mouvement, caméra
+  systemes/       combat, IA ennemie, progression, économie, équilibrage et difficulté,
+                  aléatoire et génération procédurale, multijoueur
+  contenu/        level design, narration, onboarding et tutoriels
+  interface/      UI/UX et HUD, audio, accessibilité
+  genres/         plateforme, shooter, roguelike, puzzle, RPG, stratégie, survie-crafting, deckbuilder
+  production/     processus et prototypage, rendre un jeu playtestable, playtest et métriques,
+                  gabarits (GDD, fiche mécanique, persona, plan et rapport de playtest)
+  glossaire.md    vocabulaire du game design
+  sources.md      livres, talks et articles de référence
 ```
 
-La fiche [ressenti/game-feel-juice.md](ressenti/game-feel-juice.md) contient des pistes d'implémentation spécifiques à Unreal Engine 5 ; les autres fiches sont agnostiques du moteur, avec des notes UE5, Godot ou Unity quand c'est utile.
+La fiche [game feel et juice](skills/referentiel/ressenti/game-feel-juice.md) contient des pistes d'implémentation spécifiques à Unreal Engine 5 ; les autres fiches sont agnostiques du moteur, avec des notes UE5, Godot ou Unity quand c'est utile.
 
 ## Contribuer
 
