@@ -1,0 +1,14 @@
+{
+  "name": "quiche-lorraine-games",
+  "owner": {
+    "name": "Quiche Lorraine Games"
+  },
+  "description": "Plugins Claude Code de Quiche Lorraine Games.",
+  "plugins": [
+    {
+      "name": "game-design",
+      "source": ".",
+      "description": "Référentiel de game design général en français, consulté par les agents pendant le développement d'un jeu."
+    }
+  ]
+}
