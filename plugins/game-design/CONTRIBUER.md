@@ -30,4 +30,4 @@ Toutes les fiches vivent sous `skills/referentiel/`, dans le dossier thématique
 
 - Ajouter la fiche à la table de routage de [SKILL.md](skills/referentiel/SKILL.md) et à l'arborescence du [README.md](README.md).
 - Ajouter les nouveaux termes à [glossaire.md](skills/referentiel/glossaire.md) et les nouvelles références à [sources.md](skills/referentiel/sources.md).
-- Vérifier que les liens relatifs fonctionnent et lancer `claude plugin validate .`.
+- Vérifier que les liens relatifs fonctionnent et lancer `claude plugin validate .` à la racine du repo.

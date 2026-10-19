@@ -1,76 +1,49 @@
-# game-design
+# claude-plugins
 
-Plugin Claude Code qui fournit un référentiel de **game design général**, en français, pour que les agents s'en servent comme référence quand ils conçoivent, implémentent ou critiquent une mécanique, un système, un niveau, une interface ou un playtest.
+Marketplace de plugins Claude Code de Quiche Lorraine Games (`quiche-lorraine-games`).
 
-Le plugin contient :
-- **le skill `game-design:referentiel`** : une table de routage « tâche → fiche » et une quarantaine de fiches, dont 8 fiches genres, 5 gabarits, un glossaire et une bibliographie ;
-- **un hook de démarrage** qui rappelle à l'agent, en une phrase, que le référentiel existe et quand le charger.
+## Plugins
 
-Chaque fiche suit le même format : résumé, situations où la consulter, règles concrètes et valeurs de départ, pièges, checklist, pistes d'implémentation, liens et sources.
+| Plugin | Contenu |
+|---|---|
+| [game-design](plugins/game-design/) | Référentiel de game design général en français : fiches thématiques, fiches genres, gabarits, glossaire et sources, consultés par les agents pendant le développement d'un jeu. |
 
 ## Installation
-
-Le repo sert aussi de marketplace (`quiche-lorraine-games`).
 
 **Claude Code en ligne de commande** (une fois par machine, valable pour tous les projets) :
 
 ```bash
-claude plugin marketplace add quiche-lorraine-games/game-design
-claude plugin install game-design@quiche-lorraine-games
+claude plugin marketplace add quiche-lorraine-games/claude-plugins
+claude plugin install <plugin>@quiche-lorraine-games
 ```
 
-Ou depuis une session : `/plugin marketplace add quiche-lorraine-games/game-design`, puis `/plugin install game-design@quiche-lorraine-games`.
+Ou depuis une session : `/plugin marketplace add quiche-lorraine-games/claude-plugins`, puis `/plugin install <plugin>@quiche-lorraine-games`.
 
 Si le repo est privé, la machine doit pouvoir le cloner avec tes identifiants git habituels.
 
+Si la marketplace avait été ajoutée sous l'ancien nom du repo (`game-design`), la remettre sur le nouveau :
+
+```bash
+claude plugin marketplace remove quiche-lorraine-games
+claude plugin marketplace add quiche-lorraine-games/claude-plugins
+claude plugin install game-design@quiche-lorraine-games
+```
+
 **Sessions Claude Code dans le cloud** : les plugins activés seulement dans tes réglages locaux ne sont pas chargés dans le cloud. Deux possibilités :
-- dans un Project, l'ajouter dans les réglages du Project, rubrique Plugins ;
+- dans un Project, ajouter le plugin dans les réglages du Project, rubrique Plugins ;
 - pour toute une organisation, l'activer dans les réglages gérés (*managed settings*) de l'organisation sur claude.ai, avec `extraKnownMarketplaces` et `enabledPlugins`.
 
-**Mise à jour** : le plugin n'a pas de numéro de version, l'installation suit donc les commits de la branche par défaut. Pour récupérer les nouveautés :
+## Mises à jour
+
+Les plugins n'ont pas de numéro de version : une installation suit les commits de la branche par défaut. Pour récupérer les nouveautés :
 
 ```bash
 claude plugin marketplace update quiche-lorraine-games
-claude plugin update game-design@quiche-lorraine-games
+claude plugin update <plugin>@quiche-lorraine-games
 ```
 
 En session : `/plugin marketplace update quiche-lorraine-games`, puis `/reload-plugins`. On peut aussi activer la mise à jour automatique de la marketplace dans `/plugin`, rubrique Marketplaces.
 
-## Utilisation
+## Ajouter un plugin
 
-Une fois le plugin installé, rien à faire : le hook de démarrage signale le référentiel à l'agent, qui charge le skill quand la tâche porte sur le jeu. On peut aussi le demander explicitement avec `/game-design:referentiel`.
-
-Pour un projet où le référentiel doit être systématiquement consulté, ajouter au `CLAUDE.md` du jeu :
-
-```markdown
-## Référentiel game design
-Avant de concevoir ou d'implémenter une mécanique, un système, un niveau ou une
-interface, charge le skill `game-design:referentiel` et applique la fiche
-pertinente. Les décisions de ce projet (GDD, piliers, code existant) priment
-sur le référentiel.
-```
-
-## Contenu
-
-```
-skills/referentiel/
-  SKILL.md        règles d'usage et table de routage
-  fondamentaux/   boucles de gameplay, cadres théoriques (MDA, flow, SDT…), principes de conception,
-                  profils de joueurs
-  ressenti/       game feel et juice, contrôles et mouvement, caméra
-  systemes/       combat, IA ennemie, progression, économie, équilibrage et difficulté,
-                  aléatoire et génération procédurale, multijoueur
-  contenu/        level design, narration, onboarding et tutoriels
-  interface/      UI/UX et HUD, audio, accessibilité
-  genres/         plateforme, shooter, roguelike, puzzle, RPG, stratégie, survie-crafting, deckbuilder
-  production/     processus et prototypage, rendre un jeu playtestable, playtest et métriques,
-                  gabarits (GDD, fiche mécanique, persona, plan et rapport de playtest)
-  glossaire.md    vocabulaire du game design
-  sources.md      livres, talks et articles de référence
-```
-
-La fiche [game feel et juice](skills/referentiel/ressenti/game-feel-juice.md) contient des pistes d'implémentation spécifiques à Unreal Engine 5 ; les autres fiches sont agnostiques du moteur, avec des notes UE5, Godot ou Unity quand c'est utile.
-
-## Contribuer
-
-Voir [CONTRIBUER.md](CONTRIBUER.md).
+Voir [CLAUDE.md](CLAUDE.md).

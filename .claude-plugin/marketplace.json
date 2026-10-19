@@ -7,7 +7,7 @@
   "plugins": [
     {
       "name": "game-design",
-      "source": ".",
+      "source": "./plugins/game-design",
       "description": "Référentiel de game design général en français, consulté par les agents pendant le développement d'un jeu."
     }
   ]
