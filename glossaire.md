@@ -167,7 +167,6 @@
 - **SDT** (*Self-Determination Theory*) : théorie de la motivation fondée sur trois besoins : compétence, autonomie, appartenance. → [Cadres théoriques](fondamentaux/cadres-theoriques.md)
 - **Shuffle bag** (sac mélangé) : tirage sans remise qui garantit une répartition des résultats. → [Aléatoire](systemes/aleatoire-et-procedural.md)
 - **Skill atom** (atome de compétence) : unité d'apprentissage action → simulation → feedback → modèle mental (Daniel Cook). → [Onboarding](contenu/onboarding-tutoriels.md)
-- **Smoke test** (test de fumée) : vérification rapide que le build se lance et que le parcours principal fonctionne. → [Rendre un jeu playtestable](production/rendre-un-jeu-playtestable.md)
 - **Softlock** (blocage) : situation où le jeu tourne mais où le joueur ne peut plus progresser. → [Rendre un jeu playtestable](production/rendre-un-jeu-playtestable.md)
 - **Source / puits** (*faucet / sink*) : mécanisme qui crée / détruit une ressource dans l'économie. → [Économie](systemes/economie.md)
 - **Squash & stretch** (écrasement et étirement) : déformation du visuel d'un personnage pour exprimer l'élan et l'impact. → [Game feel](ressenti/game-feel-juice.md)

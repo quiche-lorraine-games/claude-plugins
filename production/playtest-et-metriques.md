@@ -26,7 +26,7 @@
 - L'équipe et les proches sont de mauvais testeurs pour la compréhension (biais de connaissance, biais de bienveillance).
 - Nombre : pour les problèmes d'utilisabilité, un petit nombre de testeurs (5 environ par itération, règle issue de l'UX logicielle, Nielsen) révèle la majorité des problèmes majeurs ; mieux vaut plusieurs petites sessions itératives qu'une grosse.
 
-**Préparer le build** : stable, avec télémétrie active, enregistrement vidéo de l'écran (et si possible du visage et des mains / manette), point de départ prévu. La liste complète des points à vérifier est dans [Rendre un jeu playtestable](rendre-un-jeu-playtestable.md) ; le [plan de playtest](templates/plan-playtest.md) sert de feuille de préparation.
+**Préparer le build** : stable, avec télémétrie active, enregistrement vidéo de l'écran (et si possible du visage et des mains / manette), point de départ prévu. Le minimum à vérifier avant d'envoyer un build est dans [Rendre un jeu playtestable](rendre-un-jeu-playtestable.md) ; le [plan de playtest](templates/plan-playtest.md) sert de feuille de préparation.
 
 ## 2. Pendant la session : observer sans guider
 

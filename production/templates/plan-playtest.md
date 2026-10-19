@@ -29,16 +29,18 @@ Voir : production/playtest-et-metriques.md
 - **Contrepartie** :
 
 ## Préparation (go / no-go)
-- [ ] Chemin testé joué en entier sur le build exporté
-- [ ] Version visible à l'écran, dans les logs et la télémétrie
-- [ ] Réinitialisation entre testeurs prête
-- [ ] Outils de debug inaccessibles aux testeurs
-- [ ] Contrôles affichés, AZERTY et QWERTY vérifiés
-- [ ] Télémétrie et rapports de crash vérifiés de bout en bout
-- [ ] Enregistrement vidéo testé
-- [ ] Questionnaire prêt et relié à l'identifiant de session
-- [ ] Formulaire de consentement prêt
-- [ ] Répétition générale faite
+<!-- Le minimum de production/rendre-un-jeu-playtestable.md. -->
+- [ ] Build exporté qui se lance sur une autre machine
+- [ ] Parcours testé joué en entier sur ce build, sans crash ni blocage
+- [ ] Écran de fin ; contenu hors périmètre inaccessible
+- [ ] Version visible à l'écran
+- [ ] Contrôles indiqués et fonctionnels (AZERTY et QWERTY, manette prévue)
+- [ ] Aucun outil de debug accessible
+- [ ] Sauvegarde vierge, réinitialisable entre testeurs
+- [ ] Pause et sortie propres
+- [ ] Questionnaire ou grille d'observation prêt
+- [ ] Accord des testeurs recueilli
+- [ ] À distance : instructions d'une page, logs sur disque, installation testée
 
 ## Ce qu'on observe
 <!-- Comportements et métriques à noter, reliés aux questions. Ex. : temps avant la première utilisation du bouclier, morts au boss. -->

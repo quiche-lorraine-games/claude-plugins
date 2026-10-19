@@ -36,7 +36,7 @@ Ce repo est une **base de connaissances de game design**, indépendante de tout 
 | Effets sonores, mixage, musique adaptative | [interface/audio.md](interface/audio.md) |
 | Options d'accessibilité, sous-titres, daltonisme, remapping | [interface/accessibilite.md](interface/accessibilite.md) |
 | Organiser le développement, prototyper, maîtriser le périmètre | [production/processus-et-prototypage.md](production/processus-et-prototypage.md) |
-| Préparer un build pour un playtest (stabilité, version, réinitialisation, retours, distribution) | [production/rendre-un-jeu-playtestable.md](production/rendre-un-jeu-playtestable.md) |
+| Savoir si un build peut partir en playtest : le minimum à avoir | [production/rendre-un-jeu-playtestable.md](production/rendre-un-jeu-playtestable.md) |
 | Organiser ou analyser un playtest, télémétrie | [production/playtest-et-metriques.md](production/playtest-et-metriques.md) |
 | Rédiger un GDD, une fiche mécanique, un persona, un plan ou un rapport de playtest | [production/templates/](production/templates/) |
 | Un vocabulaire précis | [glossaire.md](glossaire.md) |
