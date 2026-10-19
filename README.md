@@ -6,9 +6,9 @@ Chaque fiche suit le même format : résumé, situations où la consulter, règl
 
 ## Utiliser le référentiel dans un projet de jeu
 
-**Session Claude Code dans le cloud** : ajouter ce repo aux sources de la session, à côté du repo du jeu. Le skill `game-design` (dans `.claude/skills/`) devient alors disponible, et l'agent peut lire les fiches directement.
+**Session Claude Code dans le cloud** : ajouter ce repo aux sources de la session, à côté du repo du jeu. Dans un Project, chaque session clone tous les repos du projet et charge leur `CLAUDE.md` et leurs skills : le skill `game-design` (dans `.claude/skills/`) devient disponible, et l'agent peut lire les fiches directement.
 
-**Claude Code en local** : cloner ce repo à côté du projet, puis l'ajouter au contexte avec `claude --add-dir ../game-design`, ou `/add-dir ../game-design` en cours de session.
+**Claude Code en local** : cloner ce repo à côté du projet, puis l'ajouter avec `claude --add-dir ../game-design`, ou `/add-dir ../game-design` en cours de session. Le skill est alors chargé automatiquement, mais pas le `CLAUDE.md` de ce repo, sauf si la variable d'environnement `CLAUDE_CODE_ADDITIONAL_DIRECTORIES_CLAUDE_MD=1` est définie.
 
 **Dans tous les cas**, le plus fiable est d'ajouter ces lignes au `CLAUDE.md` du projet de jeu, pour que l'agent sache que le référentiel existe et quand s'en servir :
 
