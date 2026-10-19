@@ -66,9 +66,9 @@ Autres mécaniques fréquentes : double saut, *wall jump* / *wall slide*, dash, 
 
 Détails dans [Level design](../contenu/level-design.md) et [Onboarding](../contenu/onboarding-tutoriels.md).
 
-- **Introduire → développer → tordre → conclure** (structure *kishōtenketsu* décrite par Koichi Hayashida pour *Super Mario 3D World*) : chaque niveau explore une seule idée.
+- **Introduire → développer → tordre → conclure** (structure *kishōtenketsu* décrite par Koichi Hayashida à propos de *Super Mario 3D Land*) : chaque niveau explore une seule idée.
 - Présenter un danger d'abord **dans une situation sûre** (pas de trou dessous), puis avec enjeu.
-- Le jeu de référence spatial : construire les niveaux sur une **grille** cohérente avec la hauteur/longueur de saut. Documenter les distances franchissables (saut simple, avec élan, double saut) et s'y tenir.
+- Construire les niveaux sur une **grille** cohérente avec la hauteur/longueur de saut. Documenter les distances franchissables (saut simple, avec élan, double saut) et s'y tenir.
 - Les sauts « de foi » (atterrissage hors champ) sont à proscrire, sauf signalés.
 - Placer des collectibles sur la trajectoire idéale pour **guider** le joueur.
 
@@ -124,4 +124,4 @@ Détails dans [Level design](../contenu/level-design.md) et [Onboarding](../cont
 - Kyle Pittman, « Math for Game Programmers: Building a Better Jump », GDC 2016.
 - Maddy Thorson, fil de messages sur les aides de jouabilité de *Celeste* (coyote time, jump buffer, apex), 2018.
 - Steve Swink, *Game Feel*, Morgan Kaufmann, 2008.
-- Koichi Hayashida, entretien sur le level design de *Super Mario 3D World* (structure kishōtenketsu), Gamasutra, 2012.
+- Koichi Hayashida, entretien sur le level design de *Super Mario 3D Land* (structure kishōtenketsu), Gamasutra, 2012.
