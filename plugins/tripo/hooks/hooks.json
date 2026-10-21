@@ -1,0 +1,16 @@
+{
+  "hooks": {
+    "SessionStart": [
+      {
+        "matcher": "startup|clear|compact",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "[ -n \"${TRIPO_API_KEY:-}\" ] || echo \"Plugin tripo actif, mais TRIPO_API_KEY n'est pas définie : la génération de modèles 3D est indisponible (voir le README du plugin tripo).\"",
+            "timeout": 5
+          }
+        ]
+      }
+    ]
+  }
+}
