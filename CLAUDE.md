@@ -16,7 +16,7 @@ README.md                         présentation de la marketplace, installation,
 
 Plugins actuels :
 - `plugins/game-design/` : référentiel de game design. Pour modifier ses fiches, suivre [plugins/game-design/CONTRIBUER.md](plugins/game-design/CONTRIBUER.md).
-- `plugins/tripo/` : génération de modèles 3D avec l'API Tripo et import dans Godot. Script `skills/generer/scripts/tripo.py` (bibliothèque standard uniquement) ; tests : `python3 -m unittest discover -s plugins/tripo/tests`.
+- `plugins/tripo/` : toute l'API Tripo 3D (génération, traitement, animation de modèles) et import dans Godot. Script `skills/generer/scripts/tripo.py` (bibliothèque standard uniquement) ; tests : `python3 -m unittest discover -s plugins/tripo/tests`.
 
 ## Règles
 
