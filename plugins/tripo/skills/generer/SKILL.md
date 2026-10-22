@@ -60,7 +60,7 @@ Il te faut au minimum :
 
 | Besoin | Commande |
 |---|---|
-| Un prop depuis une description | `texte` |
+| Un prop depuis une description | `image-texte` (3 ou 4 variantes), choix de l'utilisateur, puis `image --low-poly` ; `texte` pour un premier jet |
 | Un prop depuis un concept (une image) | `image` |
 | Un prop fidèle à plusieurs vues | `multivue`, éventuellement après `image-multivue` |
 | Une image de concept, ou la retoucher | `image-texte`, `image-image` |
@@ -75,6 +75,11 @@ Il te faut au minimum :
 | Endpoint récent que le script ne connaît pas | `brut` |
 
 Retravailler coûte moins cher que régénérer. Corriger le poids ou la texture d'un modèle presque bon ne doit jamais passer par une nouvelle génération sans l'accord de l'utilisateur.
+
+**Pour un objet, préfère image → modèle à texte → modèle.** `texte` donne des surfaces bosselées et ajoute des pièces malgré le prompt négatif. `image` donne des formes bien plus fidèles et plus nettes. La chaîne conseillée :
+1. `image-texte` : 3 ou 4 variantes du concept, environ 5 crédits l'une (c'est une série : annonce le total et attends l'accord) ;
+2. l'utilisateur choisit une image ;
+3. `image <image choisie> --low-poly` (ou sans `--low-poly`, selon le style).
 
 ## Coût
 
@@ -121,6 +126,8 @@ Règles :
 - **Ne relance jamais en boucle pour « améliorer ».** Après un résultat décevant, montre-le, dis ce qui ne va pas, propose un prompt corrigé et son coût, et laisse l'utilisateur décider.
 - Pour montrer la requête sans rien dépenser, ajoute `--a-blanc`.
 
+**Une tâche à la fois.** Le compte Tripo peut n'accepter qu'une tâche à la fois : lancées en parallèle, les tâches en trop sont refusées (HTTP 429, code 9). Lance les tâches d'une série l'une après l'autre, jamais en arrière-plan en parallèle. Sur un 429, le script attend et réessaie pendant environ 5 minutes avant d'abandonner ; un refus pour limite ne crée ni ne débite aucune tâche.
+
 ## Déroulé
 
 ### 1. Brief
@@ -139,7 +146,7 @@ Si le brief couvre plusieurs objets, c'est une série : applique la règle de co
 - Un seul objet par prompt, décrit concrètement : forme, matériaux, état (neuf, rouillé, cabossé), couleurs dominantes.
 - Ajoute les mots de style imposés par les conventions du projet.
 - Évite les décors, les socles, le texte et les personnages autour de l'objet. Mets-les plutôt dans `--negatif`.
-- En anglais de préférence. 1 024 caractères au maximum.
+- En anglais de préférence. 1 024 caractères au maximum, et 255 pour `--negatif` : le script refuse au-delà, avant tout envoi.
 - Pour partir d'un concept existant, utilise `image` avec une image nette de l'objet seul, sur fond uni, en PNG, JPEG ou WebP de 20 Mo au maximum. Avec plusieurs vues du même objet, utilise `multivue`.
 
 Montre le prompt à l'utilisateur avant une série.
@@ -162,11 +169,11 @@ Options principales (liste complète dans [commandes.md](commandes.md)) :
 |---|---|
 | `--sortie` | fichier à écrire (obligatoire) ; refuse d'écraser sans `--ecraser` |
 | `--format glb\|fbx\|obj` | `glb` par défaut, à garder pour Godot ; `fbx` et `obj` passent par une conversion payante |
-| `--faces N` | limite de faces (`face_limit`) ; sans elle, Tripo choisit |
+| `--faces N` | limite de faces (`face_limit`) ; sans elle, Tripo choisit. Ce sont des faces, souvent des quads, pas des triangles : pour un budget en triangles, passe environ la moitié |
 | `--sans-texture` | géométrie seule, moins chère |
 | `--sans-pbr` | texture sans cartes PBR |
 | `--qualite-texture detailed` | texture plus fine, plus chère |
-| `--taille-auto` | Tripo met l'objet à l'échelle réelle en mètres (`auto_size`) |
+| `--taille-auto` | `auto_size` ; sans effet constaté sur l'échelle (voir « Contrôle du résultat ») |
 | `--low-poly` | topologie low-poly (`smart_low_poly`), avec supplément |
 | `--modele` | version du modèle Tripo, `v3.1-20260211` par défaut |
 | `--graine N` | graine, pour refaire un résultat proche |
@@ -202,12 +209,20 @@ python3 "$TRIPO" inspecter assets/props/caisses/caisse_bois_01.glb
 ```
 
 Compare ces valeurs aux conventions et au brief :
-- **faces** au-dessus de la limite : le script avertit. Signale-le, sans relancer d'office.
+- **faces** : `--faces` compte des faces, souvent des quads, et le contrôle compte des triangles. Avec `--low-poly`, on a mesuré 1 641 triangles pour `--faces 1500`, 3 614 et 2 854 pour 2 000, 5 473 pour 3 600 : jusqu'à 2 triangles par face demandée. Pour un budget de N triangles, passe environ N/2 à `--faces`. Au-delà de 2 triangles par face, le script avertit : signale-le, sans relancer d'office.
 - **poids** : au-dessus du budget, ce sont souvent les textures. Propose `--sans-pbr`, une texture standard, `decimer` pour la géométrie, ou une réduction dans Godot.
-- **échelle** : Tripo rend souvent l'objet dans une boîte d'environ 1 unité. Corrige l'échelle à l'import dans Godot (option `nodes/root_scale` du `.import`, ou échelle de la scène qui l'instancie, selon les conventions). Ne régénère pas pour une question d'échelle. `--taille-auto` aide pour les prochaines générations.
-- **orientation et pivot** : vérifie que l'avant et le sol sont corrects une fois dans Godot.
+- **échelle** : Tripo rend l'objet dans une boîte d'environ 1 m. `--taille-auto` (`auto_size`) n'a changé l'échelle d'aucun des modèles essayés (une dizaine, octobre 2026) : ne compte pas dessus. Corrige l'échelle à l'import dans Godot (option `nodes/root_scale` du `.import`, ou échelle de la scène qui l'instancie, selon les conventions), à partir de la taille réelle du brief. Ne régénère pas pour une question d'échelle.
+- **orientation et pivot** : vérifie que l'avant et le sol sont corrects une fois dans Godot. Les modèles de Tripo sortent debout sur +Y, l'avant vers +X.
+- **low poly en facettes** : un GLB low poly de Tripo a un jeu de sommets par facette, pour garder des arêtes vives. Godot l'affiche correctement. Dans Blender, le modèle arrive en centaines de morceaux : coche *Merge Vertices* à l'import glTF, ou sélectionne tout en mode édition puis *Mesh > Clean Up > Merge by Distance*. Ce n'est pas un défaut à corriger dans le fichier : glTF stocke une normale par sommet, donc un GLB ne peut pas être à la fois soudé et en facettes, et Blender redécoupe le maillage à l'export.
 
 Décris le résultat à l'utilisateur en une ou deux lignes (valeurs et écarts). Ne présente jamais un asset comme validé sans ce contrôle.
+
+### Cas du rig : l'orientation compte
+
+`riggable` et `rigger` ne reconnaissent un squelette que sur un modèle debout sur +Y, l'avant vers +X, comme Tripo rend ses propres modèles. Le même personnage tourné de 90° autour de Y (avant vers −Z, après un passage par Godot ou Blender) est jugé non riggable, quelle que soit son échelle.
+- Un `task_id` Tripo est déjà dans la bonne orientation.
+- Pour un GLB local qui regarde ailleurs, ajoute `--avant -z` (ou `+z`, `-x`) à `riggable` et à `rigger` : le script tourne une copie du modèle vers +X avant l'envoi, sans toucher au fichier d'origine, et le note dans la fiche.
+- Le GLB riggé sort dans l'orientation de Tripo (avant vers +X). Le script dit de combien tourner son nœud autour de Y dans Godot pour retrouver l'orientation d'origine : +90° pour un avant −Z, −90° pour +Z, 180° pour −X.
 
 ### 5. Import dans Godot
 
@@ -237,13 +252,13 @@ Si Godot n'est pas installé dans l'environnement, dis-le clairement : le modèl
 
 Chaque résultat a une fiche, à côté de lui (`caisse_bois_01.glb` → `caisse_bois_01.tripo.json`). Elle permet de retrouver et de refaire l'asset. Elle contient :
 - l'opération (endpoint) et le prompt ;
-- les entrées : fichiers (chemin, taille, empreinte SHA-256), URL ou `task_id` des tâches précédentes, ce qui retrace la chaîne de fabrication ;
+- les entrées : fichiers (chemin relatif au dossier de la fiche, taille, empreinte SHA-256), URL ou `task_id` des tâches précédentes, ce qui retrace la chaîne de fabrication. Un fichier pris hors du projet (dossier temporaire, par exemple) ne garde que son nom et son empreinte ;
 - le `task_id` ;
 - les paramètres envoyés ;
 - la version du modèle Tripo ;
 - la date ;
 - les crédits débités, si l'API les donne ;
-- la liste des fichiers écrits et l'hôte d'où ils viennent ;
+- la liste des fichiers écrits, relatifs au dossier de la fiche, et l'hôte d'où ils viennent ;
 - le contrôle.
 
 Ne la modifie pas à la main. Pour refaire un asset, relis-la et relance avec les mêmes prompt, paramètres et graine, après accord sur le coût.
@@ -255,15 +270,15 @@ Le script écrit sur la sortie d'erreur un message court qui donne l'action à f
 | Code | Cas | Ce que tu dis à l'utilisateur |
 |---|---|---|
 | 0 | succès | résumé du contrôle et chemin du fichier |
-| 1 | erreur API inattendue, téléchargement refusé | le message du script ; pour une URL expirée, relance `telecharger <task_id>` (gratuit) |
+| 1 | erreur API inattendue, téléchargement refusé ou coupé | le message du script. Si la tâche a réussi, le script a déjà réessayé 4 fois ; il affiche son `task_id` et la commande `telecharger` exacte, gratuite, à relancer après une pause. Ne relance jamais la génération |
 | 2 | argument invalide | corrige l'appel toi-même, sans rien demander |
 | 3 | clé absente ou refusée (401) | « La clé Tripo manque ou est refusée. Ajoute ou corrige `TRIPO_API_KEY` dans les secrets de l'environnement, puis ouvre une nouvelle session. » Ne demande jamais la clé dans le chat. |
 | 4 | crédits épuisés (code 2010) | « Le compte Tripo n'a plus assez de crédits ; rien n'a été débité. Recharge-le dans la console Tripo. » |
-| 5 | domaine bloqué par la politique réseau (403 du proxy) ou injoignable | « Le domaine `<hôte>` est bloqué. Ajoute-le aux domaines autorisés de l'environnement. » Donne l'hôte exact cité par le script. |
+| 5 | domaine bloqué par la politique réseau (403 du proxy) ou injoignable | « Le domaine `<hôte>` est bloqué. Ajoute-le aux domaines autorisés de l'environnement. » Donne l'hôte exact cité par le script. Si la tâche avait réussi, donne aussi la commande `telecharger` qu'il affiche. Une connexion coupée en cours de transfert n'est pas un blocage : le script la réessaie |
 | 6 | tâche échouée, annulée ou expirée | « La génération a échoué ; Tripo ne débite pas les tâches échouées. » Propose un prompt ou une image modifiés, avec leur coût, sans relancer d'office. |
 | 7 | délai dépassé | « La tâche `<task_id>` tourne encore côté Tripo. » Reprends plus tard avec `telecharger <task_id>` : ne relance pas de génération, ce qui paierait deux fois. |
 | 8 | contenu refusé par la modération (code 2008, statut `banned`) | dis-le, et propose une reformulation |
-| 9 | trop de requêtes ou de tâches simultanées (429) | attends la fin des tâches en cours avant d'en créer d'autres |
+| 9 | trop de tâches simultanées (429), malgré environ 5 minutes de nouveaux essais | rien n'a été créé ni débité. Attends la fin des tâches en cours, puis relance une seule tâche à la fois |
 
 ## Sécurité de la clé
 

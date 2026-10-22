@@ -16,13 +16,16 @@ Lancer `tripo.py <sous-commande> --help` pour les options, et voir ../SKILL.md p
 import argparse
 import datetime
 import hashlib
+import http.client
 import json
 import math
 import os
+import shlex
 import socket
 import ssl
 import struct
 import sys
+import tempfile
 import time
 import urllib.error
 import urllib.parse
@@ -34,6 +37,10 @@ API_BASE_DEFAUT = "https://openapi.tripo3d.ai"
 # l'hôte réel de chaque modèle est noté dans le champ hote_fichier du .tripo.json.
 HOTES_FICHIERS_DEFAUT = ["https://tripo-data.rg1.data.tripo3d.com"]
 MODELE_DEFAUT = "v3.1-20260211"
+# Sans champ model, l'API de rig applique une valeur qu'elle refuse elle-même (v2.5-20250123, HTTP 400,
+# code 1004, constaté le 22/10/2026) : le script envoie donc toujours un modèle de rig valide.
+MODELE_RIG_DEFAUT = "v3.0-20260909"
+MODELES_RIG = ("v1.0-20240301", "v2.5-20260210", "v3.0-20260909")
 FORMATS = ("glb", "fbx", "obj")
 FORMATS_CONVERSION = ("gltf", "usdz", "fbx", "obj", "stl", "3mf")
 EXTENSIONS_IMAGE = (".png", ".jpg", ".jpeg", ".webp")
@@ -46,6 +53,14 @@ TAILLE_MAX_IMAGE = 20 * 1024 * 1024
 TAILLE_MAX_MODELE = 150 * 1024 * 1024
 TAILLE_MAX_MULTIPART = 50 * 1024 * 1024
 LONGUEUR_MAX_PROMPT = 1024
+LONGUEUR_MAX_NEGATIF = 255
+# Seedream refuse les petites tailles (« total pixels below minimum » pour 1024x1024, 2048x2048 accepté) :
+# bornes de Seedream 4.5 et 5, de 2560×1440 à 4096×4096 pixels au total.
+PIXELS_MIN_SEEDREAM = 2560 * 1440
+PIXELS_MAX_SEEDREAM = 4096 * 4096
+# Réessais : téléchargement coupé en cours de transfert, création refusée pour tâches simultanées (429).
+ESSAIS_TELECHARGEMENT = 4
+ATTENTES_LIMITE = (10, 20, 40, 60, 60, 60, 60)
 STATUTS_FINAUX = ("success", "failed", "cancelled", "banned", "expired")
 AGENT = "tripo-plugin-quiche-lorraine-games/1"
 
@@ -63,10 +78,20 @@ LIMITE = 9           # trop de requêtes ou de tâches simultanées (HTTP 429)
 
 
 class ErreurTripo(Exception):
-    def __init__(self, code, message):
+    def __init__(self, code, message, reessayable=False):
         super().__init__(message)
         self.code = code
         self.message = message
+        self.reessayable = reessayable
+
+
+def pause_reessai(secondes):
+    """Attente avant un nouvel essai ; TRIPO_PAUSE_REESSAI la multiplie (les tests la mettent à 0)."""
+    try:
+        facteur = float(os.environ.get("TRIPO_PAUSE_REESSAI", "1"))
+    except ValueError:
+        facteur = 1.0
+    time.sleep(max(secondes * facteur, 0.0))
 
 
 # ---------------------------------------------------------------------------
@@ -131,10 +156,15 @@ def _erreur_reseau(url, exc):
             "autorisé dans la politique réseau de l'environnement."))
     if isinstance(raison, socket.gaierror):
         return ErreurTripo(RESEAU, f"Hôte {nom} introuvable (DNS). Vérifie l'accès réseau de l'environnement.")
+    # Connexion établie puis coupée (proxy sortant, hôte surchargé) : rien n'est bloqué, on peut réessayer.
+    if isinstance(raison, (ConnectionResetError, ConnectionAbortedError, BrokenPipeError,
+                           http.client.IncompleteRead, http.client.RemoteDisconnected, ssl.SSLEOFError)):
+        return ErreurTripo(RESEAU, f"Connexion avec {nom} coupée en cours de transfert ({texte}).", reessayable=True)
     if isinstance(raison, ssl.SSLError):
         return ErreurTripo(RESEAU, f"Échec TLS avec {nom} ({texte}). Vérifie les certificats de l'environnement.")
     if isinstance(raison, (socket.timeout, TimeoutError)):
-        return ErreurTripo(RESEAU, f"{nom} ne répond pas (délai réseau dépassé). Réessaie plus tard.")
+        return ErreurTripo(RESEAU, f"{nom} ne répond pas (délai réseau dépassé). Réessaie plus tard.",
+                           reessayable=True)
     return ErreurTripo(RESEAU, f"Impossible de joindre {nom} : {texte}.")
 
 
@@ -147,7 +177,7 @@ def requete(methode, url, corps=None, entetes=None, delai=60):
             return rep.status, rep.headers, rep.read()
     except urllib.error.HTTPError as exc:
         return exc.code, exc.headers, exc.read() or b""
-    except (urllib.error.URLError, OSError) as exc:
+    except (urllib.error.URLError, OSError, http.client.HTTPException) as exc:
         raise _erreur_reseau(url, exc) from None
 
 
@@ -223,7 +253,7 @@ def _erreur_api(statut, code, message, suggestion, trace):
     if statut == 429 or code in (1007, 2000):
         return ErreurTripo(LIMITE, (
             f"Tripo limite les requêtes ou les tâches simultanées (HTTP {statut}, code {code}). "
-            "Attends la fin des tâches en cours, puis relance."))
+            "Lance une seule tâche à la fois : attends la fin des tâches en cours, puis relance."))
     detail = " ".join(part for part in (message, suggestion) if part)
     suffixe = f" (trace {trace})" if trace else ""
     return ErreurTripo(ERREUR, f"Erreur de l'API Tripo (HTTP {statut}, code {code}) : {detail}{suffixe}")
@@ -327,7 +357,18 @@ class Entrees:
 # ---------------------------------------------------------------------------
 
 def creer_tache(api, chemin, corps):
-    data = api.appel("POST", chemin, json_corps=corps)
+    # Un refus pour limite (429) garantit qu'aucune tâche n'a été créée ni débitée : on peut réessayer.
+    # Les autres erreurs ne sont jamais rejouées, pour ne pas risquer de payer deux fois.
+    for attente in ATTENTES_LIMITE + (None,):
+        try:
+            data = api.appel("POST", chemin, json_corps=corps)
+            break
+        except ErreurTripo as exc:
+            if exc.code != LIMITE or attente is None:
+                raise
+            signaler(f"Tripo refuse une tâche de plus pour l'instant (tâches simultanées) ; "
+                     f"nouvel essai dans {attente} s.")
+            pause_reessai(attente)
     task_id = data.get("task_id") if isinstance(data, dict) else None
     if not task_id:
         raise ErreurTripo(ERREUR, f"Réponse de création sans task_id : {data!r}")
@@ -393,17 +434,37 @@ def verifier_succes(tache):
 
 
 
-def telecharger_fichier(url, destination, task_id):
+def _telecharger_une_fois(url):
     for _ in range(5):
         statut, entetes, brut = requete("GET", url, delai=300)
         if statut in (301, 302, 303, 307, 308) and entetes.get("Location"):
             url = urllib.parse.urljoin(url, entetes["Location"])
             continue
         break
+    if statut in (500, 502, 503, 504):
+        raise ErreurTripo(ERREUR, f"{hote(url)} a répondu HTTP {statut} au téléchargement.", reessayable=True)
     if statut != 200:
         raise ErreurTripo(ERREUR, (
             f"Téléchargement refusé par {hote(url)} (HTTP {statut}). Les URL de Tripo expirent vite : "
-            f"relance `tripo.py telecharger {task_id} --sortie {destination}` (pas de nouvelle génération)."))
+            "redemande-les à l'API avec `telecharger`."))
+    return url, brut
+
+
+def telecharger_fichier(url, destination):
+    """Télécharge en réessayant les coupures de connexion ; un hôte refusé (403 du proxy) échoue tout de suite."""
+    for essai in range(1, ESSAIS_TELECHARGEMENT + 1):
+        try:
+            url, brut = _telecharger_une_fois(url)
+            break
+        except ErreurTripo as exc:
+            if not exc.reessayable:
+                raise
+            if essai == ESSAIS_TELECHARGEMENT:
+                raise ErreurTripo(ERREUR, (
+                    f"Téléchargement abandonné après {essai} essais : {exc.message}"), reessayable=True) from None
+            attente = 2 ** essai
+            signaler(f"{exc.message} Nouvel essai ({essai + 1}/{ESSAIS_TELECHARGEMENT}) dans {attente} s.")
+            pause_reessai(attente)
     dossier = os.path.dirname(os.path.abspath(destination))
     os.makedirs(dossier, exist_ok=True)
     temporaire = destination + ".part"
@@ -458,9 +519,8 @@ def _dimensions_image(octets):
     return None
 
 
-def inspecter_glb(chemin):
-    with open(chemin, "rb") as f:
-        donnees = f.read()
+def lire_glb(donnees, chemin):
+    """Renvoie (version, JSON glTF, bloc binaire) d'un GLB."""
     if len(donnees) < 20 or donnees[:4] != b"glTF":
         raise ErreurTripo(ERREUR, f"{chemin} n'est pas un fichier GLB valide (en-tête « glTF » absent).")
     _, version, _ = struct.unpack("<4sII", donnees[:12])
@@ -474,6 +534,24 @@ def inspecter_glb(chemin):
         lg_bin, type_bin = struct.unpack("<II", donnees[debut_bin:debut_bin + 8])
         if type_bin == 0x004E4942:
             binaire = donnees[debut_bin + 8:debut_bin + 8 + lg_bin]
+    return version, gltf, binaire
+
+
+def ecrire_glb(gltf, binaire):
+    bloc_json = json.dumps(gltf, ensure_ascii=False, separators=(",", ":")).encode("utf-8")
+    bloc_json += b" " * (-len(bloc_json) % 4)
+    binaire = bytes(binaire) + b"\0" * (-len(binaire) % 4)
+    total = 12 + 8 + len(bloc_json) + (8 + len(binaire) if binaire else 0)
+    sortie = struct.pack("<4sII", b"glTF", 2, total) + struct.pack("<II", len(bloc_json), 0x4E4F534A) + bloc_json
+    if binaire:
+        sortie += struct.pack("<II", len(binaire), 0x004E4942) + binaire
+    return sortie
+
+
+def inspecter_glb(chemin):
+    with open(chemin, "rb") as f:
+        donnees = f.read()
+    version, gltf, binaire = lire_glb(donnees, chemin)
 
     accesseurs = gltf.get("accessors", [])
     maillages = gltf.get("meshes", [])
@@ -552,8 +630,141 @@ def inspecter_glb(chemin):
     }
 
 
+# ---------------------------------------------------------------------------
+# Réorientation d'un GLB pour le rig : Tripo détecte le squelette sur un modèle debout sur +Y,
+# l'avant vers +X (l'orientation de ses propres modèles).
+# ---------------------------------------------------------------------------
+
+# Rotation autour de Y (lignes d'une matrice 3×3) qui amène l'avant indiqué sur +X.
+ROTATIONS_VERS_X = {
+    "+x": ((1, 0, 0), (0, 1, 0), (0, 0, 1)),
+    "-z": ((0, 0, -1), (0, 1, 0), (1, 0, 0)),
+    "+z": ((0, 0, 1), (0, 1, 0), (-1, 0, 0)),
+    "-x": ((-1, 0, 0), (0, 1, 0), (0, 0, -1)),
+}
+# Rotation autour de Y à appliquer dans Godot au modèle riggé pour retrouver l'orientation d'origine.
+ROTATION_GODOT_RETOUR = {"-z": "+90°", "+z": "-90°", "-x": "180°"}
+EXTENSIONS_COMPRESSION = ("KHR_draco_mesh_compression", "EXT_meshopt_compression", "KHR_mesh_quantization")
+
+
+def _lineaire(m):
+    """Partie 3×3 (lignes) d'une matrice 4×4 en colonnes."""
+    return [[m[r + 4 * c] for c in range(3)] for r in range(3)]
+
+
+def _mat3_mul(a, b):
+    return [[sum(a[r][k] * b[k][c] for k in range(3)) for c in range(3)] for r in range(3)]
+
+
+def _det3(a):
+    return (a[0][0] * (a[1][1] * a[2][2] - a[1][2] * a[2][1])
+            - a[0][1] * (a[1][0] * a[2][2] - a[1][2] * a[2][0])
+            + a[0][2] * (a[1][0] * a[2][1] - a[1][1] * a[2][0]))
+
+
+def _inverse_transposee3(a):
+    det = _det3(a)
+    cof = [[a[(r + 1) % 3][(c + 1) % 3] * a[(r + 2) % 3][(c + 2) % 3]
+            - a[(r + 1) % 3][(c + 2) % 3] * a[(r + 2) % 3][(c + 1) % 3] for c in range(3)] for r in range(3)]
+    return [[cof[r][c] / det for c in range(3)] for r in range(3)]
+
+
+def _appliquer3(m, v):
+    return [m[r][0] * v[0] + m[r][1] * v[1] + m[r][2] * v[2] for r in range(3)]
+
+
+def _normer(v):
+    n = math.sqrt(sum(x * x for x in v)) or 1.0
+    return [x / n for x in v]
+
+
+def reorienter_glb(donnees, avant, chemin):
+    """Tourne un GLB autour de Y pour amener son avant sur +X. La transformation des nœuds est
+    appliquée aux sommets (positions, normales, tangentes), puis les nœuds sont remis à l'identité."""
+    _, gltf, binaire = lire_glb(donnees, chemin)
+    if avant == "+x":
+        return donnees
+
+    def refus(raison):
+        return ErreurTripo(USAGE, f"{chemin} : réorientation impossible ({raison}). Tourne le modèle dans un "
+                                  "éditeur 3D pour que son avant regarde vers +X, puis relance sans --avant.")
+
+    extensions = set(gltf.get("extensionsUsed", [])) | set(gltf.get("extensionsRequired", []))
+    compressions = extensions & set(EXTENSIONS_COMPRESSION)
+    if compressions:
+        raise refus(f"maillage compressé : {', '.join(sorted(compressions))}")
+    if gltf.get("skins") or gltf.get("animations"):
+        raise refus("le modèle a déjà un squelette ou des animations")
+    if any("uri" in b for b in gltf.get("buffers", [])):
+        raise refus("données binaires hors du GLB")
+
+    binaire = bytearray(binaire)
+    accesseurs = gltf.get("accessors", [])
+    vues = gltf.get("bufferViews", [])
+    rotation = [list(ligne) for ligne in ROTATIONS_VERS_X[avant]]
+    traites = {}
+
+    def transformer(index, matrice, nature, translation=(0, 0, 0)):
+        cle = (nature, tuple(round(x, 9) for ligne in matrice for x in ligne), tuple(round(x, 9) for x in translation))
+        if index in traites:
+            if traites[index] != cle:
+                raise refus("un même maillage est placé plusieurs fois avec des transformations différentes")
+            return
+        traites[index] = cle
+        acc = accesseurs[index]
+        if acc.get("sparse") or "bufferView" not in acc or acc.get("componentType") != 5126:
+            raise refus("attribut de sommet non stocké en flottants simples")
+        taille = 16 if nature == "tangente" else 12
+        vue = vues[acc["bufferView"]]
+        debut = vue.get("byteOffset", 0) + acc.get("byteOffset", 0)
+        pas = vue.get("byteStride") or taille
+        mini, maxi = [math.inf] * 3, [-math.inf] * 3
+        for i in range(acc.get("count", 0)):
+            position = debut + i * pas
+            v = list(struct.unpack_from("<3f", binaire, position))
+            if nature == "position":
+                v = [a + t for a, t in zip(_appliquer3(matrice, v), translation)]
+                mini = [min(a, b) for a, b in zip(mini, v)]
+                maxi = [max(a, b) for a, b in zip(maxi, v)]
+            else:
+                v = _normer(_appliquer3(matrice, v))
+            struct.pack_into("<3f", binaire, position, *v)
+        if nature == "position" and acc.get("count"):
+            acc["min"], acc["max"] = mini, maxi
+
+    noeuds = gltf.get("nodes", [])
+    identite = [1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1]
+    scenes = gltf.get("scenes") or [{"nodes": list(range(len(noeuds)))}]
+    pile = [(i, identite) for i in scenes[gltf.get("scene", 0)].get("nodes", [])]
+    while pile:
+        index, parent = pile.pop()
+        noeud = noeuds[index]
+        monde = _mat_mul(parent, _mat_noeud(noeud))
+        if "mesh" in noeud:
+            lineaire = _mat3_mul(rotation, _lineaire(monde))
+            if _det3(lineaire) <= 0:
+                raise refus("un nœud a une échelle négative (modèle en miroir)")
+            normales = _inverse_transposee3(lineaire)
+            translation = _appliquer3(rotation, [monde[12], monde[13], monde[14]])
+            for prim in gltf["meshes"][noeud["mesh"]].get("primitives", []):
+                if prim.get("targets"):
+                    raise refus("le maillage a des morph targets")
+                attributs = prim.get("attributes", {})
+                if "POSITION" in attributs:
+                    transformer(attributs["POSITION"], lineaire, "position", translation)
+                if "NORMAL" in attributs:
+                    transformer(attributs["NORMAL"], normales, "normale")
+                if "TANGENT" in attributs:
+                    transformer(attributs["TANGENT"], lineaire, "tangente")
+        pile.extend((enfant, monde) for enfant in noeud.get("children", []))
+    for noeud in noeuds:
+        for cle in ("matrix", "translation", "rotation", "scale"):
+            noeud.pop(cle, None)
+    return ecrire_glb(gltf, binaire)
+
+
 def resume_controle(controle):
-    morceaux = [_taille_lisible(controle["fichier_octets"]), f"{controle['triangles']:,} triangles".replace(",", " ")]
+    morceaux = [_taille_lisible(controle["fichier_octets"]), f"{_nombre(controle['triangles'])} triangles"]
     if controle["dimensions_m"]:
         x, y, z = controle["dimensions_m"]
         morceaux.append(f"{x:g} × {y:g} × {z:g} m (x × y × z)")
@@ -566,6 +777,10 @@ def resume_controle(controle):
     else:
         morceaux.append("sans texture")
     return ", ".join(morceaux)
+
+
+def _nombre(n):
+    return f"{n:,}".replace(",", " ")
 
 
 def _taille_lisible(octets):
@@ -600,6 +815,37 @@ def lire_fiche(sortie):
 
 def maintenant():
     return datetime.datetime.now(datetime.timezone.utc).replace(microsecond=0).isoformat()
+
+
+def _sous(chemin, racine):
+    try:
+        return os.path.commonpath([chemin, racine]) == racine
+    except ValueError:
+        return False
+
+
+def entrees_pour_fiche(liste, sortie):
+    """Chemins des fichiers d'entrée relatifs au dossier de la fiche, pour qu'elle reste valable une fois
+    le projet déplacé ou commité. Un fichier hors du projet (dossier courant) ne garde que son nom :
+    l'empreinte SHA-256 suffit à le reconnaître, sans exposer l'arborescence locale."""
+    dossier = os.path.dirname(os.path.abspath(sortie))
+    racine = os.getcwd()
+    resultat = []
+    for entree in liste:
+        entree = dict(entree)
+        if "fichier" in entree:
+            absolu = os.path.abspath(entree["fichier"])
+            if _sous(absolu, racine) and _sous(dossier, racine):
+                entree["fichier"] = os.path.relpath(absolu, dossier)
+            else:
+                del entree["fichier"]
+                entree["nom"] = os.path.basename(absolu)
+        resultat.append(entree)
+    return resultat
+
+
+def commande_telecharger(task_id, sortie):
+    return f"tripo.py telecharger {task_id} --sortie {shlex.quote(sortie)}"
 
 
 
@@ -715,9 +961,9 @@ def telecharger_sorties(tache, sortie, nature, task_id, principale_requise=True)
         if not est_principale and os.path.abspath(destination) == os.path.abspath(sortie):
             destination = f"{racine}_{nom}_2{_extension_url(url, nom)}"
         try:
-            hote_fichier, octets = telecharger_fichier(url, destination, task_id)
+            hote_fichier, octets = telecharger_fichier(url, destination)
         except ErreurTripo as exc:
-            if est_principale or exc.code == RESEAU:
+            if est_principale or (exc.code == RESEAU and not exc.reessayable):
                 raise
             signaler(f"Sortie secondaire « {nom} » non téléchargée : {exc.message}")
             continue
@@ -826,7 +1072,7 @@ def executer(args, api, entrees, chemin, corps, nature, meta=None, conversion=No
         "task_id": task_id,
         "modele_tripo": corps.get("model"),
         **{k: v for k, v in (meta or {}).items() if v is not None},
-        "entrees": entrees.liste,
+        "entrees": entrees_pour_fiche(entrees.liste, args.sortie),
         "parametres": _anonymiser(corps, entrees.jetons),
         "nature": nature,
         "fichier": os.path.basename(args.sortie),
@@ -834,7 +1080,7 @@ def executer(args, api, entrees, chemin, corps, nature, meta=None, conversion=No
     }
     if getattr(args, "sans_attendre", False):
         ecrire_fiche(args.sortie, fiche)
-        dire(f"Sans attente. Récupère le résultat avec : tripo.py telecharger {task_id} --sortie {args.sortie}")
+        dire(f"Sans attente. Récupère le résultat avec : {commande_telecharger(task_id, args.sortie)}")
         return OK
     tache = attendre(api, task_id, args.delai, args.intervalle)
     verifier_succes(tache)
@@ -851,13 +1097,27 @@ def finaliser(args, api, tache, fiche, nature, conversion=None, principale_requi
         verifier_succes(tache_fichiers)
         fiche["conversion"] = {"task_id": conversion_id, "format": conversion,
                                "credits": tache_fichiers.get("credits_consumed")}
-    fichiers = telecharger_sorties(tache_fichiers, args.sortie, nature, task_id, principale_requise)
+    if tache.get("task_id") in (None, fiche.get("task_id")):
+        fiche["credits"] = tache.get("credits_consumed")
+    try:
+        fichiers = telecharger_sorties(tache_fichiers, args.sortie, nature, task_id, principale_requise)
+    except ErreurTripo as exc:
+        if exc.code == USAGE:
+            raise
+        # La tâche a réussi et elle est payée : garder sa trace et dire comment la récupérer sans la refaire.
+        id_fichiers = tache_fichiers.get("task_id") or task_id
+        fiche["etat"] = "a_telecharger"
+        ecrire_fiche(args.sortie, fiche)
+        raise ErreurTripo(exc.code, (
+            f"{exc.message}\nLa tâche {id_fichiers} a réussi et a été débitée : ne la relance pas. "
+            f"Récupère ses fichiers gratuitement, au besoin après une pause, avec :\n"
+            f"  {commande_telecharger(id_fichiers, args.sortie)}"), exc.reessayable) from None
+    dossier = os.path.dirname(os.path.abspath(args.sortie))
     fiche.update({
         "etat": "telecharge",
         "date_telechargement": maintenant(),
-        "credits": tache.get("credits_consumed"),
         "fichier": os.path.basename(args.sortie),
-        "sorties": fichiers,
+        "sorties": [{**f, "fichier": os.path.relpath(os.path.abspath(f["fichier"]), dossier)} for f in fichiers],
         "hote_fichier": fichiers[0]["hote"] if fichiers else None,
     })
     if not fiche.get("modele_tripo"):
@@ -869,8 +1129,13 @@ def finaliser(args, api, tache, fiche, nature, conversion=None, principale_requi
         fiche["controle"] = controle
         resume = resume_controle(controle)
         limite = (fiche.get("parametres") or {}).get("face_limit")
-        if isinstance(limite, int) and limite > 0 and controle["triangles"] > limite * 1.05:
-            signaler(f"Attention : {controle['triangles']} triangles pour une limite demandée de {limite}.")
+        triangles = controle["triangles"]
+        # face_limit compte des faces, souvent des quads : jusqu'à 2 triangles par face demandée.
+        if isinstance(limite, int) and limite > 0 and triangles > 2 * limite * 1.05:
+            signaler(f"Attention : {triangles} triangles pour --faces {limite}, plus que 2 triangles par face.")
+        elif isinstance(limite, int) and limite > 0 and triangles > limite * 1.05:
+            signaler(f"Note : {triangles} triangles pour --faces {limite}. Tripo compte des faces, souvent "
+                     "des quads (2 triangles) : pour un budget en triangles, passe environ la moitié à --faces.")
     chemin = ecrire_fiche(args.sortie, fiche)
     libelles = {"modele": "Modèle écrit", "image": "Image écrite", "profondeur": "Carte de profondeur écrite",
                 "splat": "Splat écrit"}
@@ -1001,12 +1266,19 @@ def _conversion(args):
     return args.format if args.format != "glb" and not args.quad else None
 
 
+def _verifier_negatif(negatif):
+    if negatif and len(negatif) > LONGUEUR_MAX_NEGATIF:
+        raise ErreurTripo(USAGE, (f"Le prompt négatif (--negatif) dépasse {LONGUEUR_MAX_NEGATIF} caractères "
+                                  f"({len(negatif)}) : garde les mots les plus importants."))
+
+
 def cmd_texte(args):
     prompt = args.prompt.strip()
     if not prompt:
         raise ErreurTripo(USAGE, "Le prompt est vide.")
     if len(prompt) > LONGUEUR_MAX_PROMPT:
         raise ErreurTripo(USAGE, f"Le prompt dépasse {LONGUEUR_MAX_PROMPT} caractères ({len(prompt)}).")
+    _verifier_negatif(args.negatif)
     _verifier_sortie(args, ["." + args.format])
     corps = {"prompt": prompt}
     if args.negatif:
@@ -1063,8 +1335,32 @@ def _options(corps, args, correspondance):
     return corps
 
 
+def _verifier_image_texte(modele, taille, ratio):
+    """Combinaisons refusées par l'API selon la famille du modèle d'image (constatées le 22/10/2026)."""
+    nom = (modele or "").lower()
+    banana = "banana" in nom
+    seedream = not nom or "seedream" in nom  # seedream est le modèle par défaut de Tripo
+    if ratio and not banana:
+        raise ErreurTripo(USAGE, (
+            f"--ratio n'est accepté que par les modèles banana (modèle : {modele or 'seedream, défaut de Tripo'}). "
+            "Pour seedream ou chat_image, donne plutôt --taille LARGEURxHAUTEUR."))
+    if not taille:
+        return
+    largeur, x, hauteur = taille.lower().partition("x")
+    if not (x and largeur.isdigit() and hauteur.isdigit() and int(largeur) > 0 and int(hauteur) > 0):
+        raise ErreurTripo(USAGE, f"--taille attend LARGEURxHAUTEUR, ex. 2048x2048, pas « {taille} ».")
+    pixels = int(largeur) * int(hauteur)
+    if seedream and not PIXELS_MIN_SEEDREAM <= pixels <= PIXELS_MAX_SEEDREAM:
+        raise ErreurTripo(USAGE, (
+            f"--taille {taille} fait {_nombre(pixels)} pixels ; seedream demande de {_nombre(PIXELS_MIN_SEEDREAM)} "
+            f"(2560x1440) à {_nombre(PIXELS_MAX_SEEDREAM)} (4096x4096) pixels au total. "
+            "Essaie 2048x2048, 2560x1440 ou 1440x2560."))
+
+
 def cmd_image_texte(args):
     _verifier_sortie(args, EXTENSIONS_IMAGE)
+    _verifier_negatif(args.negatif)
+    _verifier_image_texte(args.modele, args.taille, args.ratio)
     corps = {"prompt": args.prompt}
     _options(corps, args, (("negatif", "negative_prompt"), ("modele", "model"), ("taille", "size"),
                            ("ratio", "aspect_ratio"), ("format_image", "output_format")))
@@ -1262,9 +1558,32 @@ def cmd_completer(args):
 # Animation
 # ---------------------------------------------------------------------------
 
+def _entree_rig(entrees, args):
+    """Entrée de riggable et rigger ; avec --avant, un GLB local est d'abord tourné vers +X."""
+    if args.avant == "+x":
+        return _entree_modele(entrees, args.entree)
+    if not os.path.isfile(args.entree) or not args.entree.lower().endswith(".glb"):
+        raise ErreurTripo(USAGE, (f"--avant {args.avant} réoriente un fichier GLB local. Un modèle produit par "
+                                  "Tripo (task_id) est déjà orienté vers +X : retire --avant."))
+    _controler_fichier(args.entree, (".glb",))
+    with open(args.entree, "rb") as f:
+        donnees = f.read()
+    tourne = reorienter_glb(donnees, args.avant, args.entree)
+    with tempfile.TemporaryDirectory() as dossier:
+        temporaire = os.path.join(dossier, os.path.basename(args.entree))
+        with open(temporaire, "wb") as f:
+            f.write(tourne)
+        valeur = entrees.resoudre(temporaire, "modele", extensions=EXTENSIONS_MODELE)
+    entrees.liste[-1].update({"fichier": args.entree, "octets": len(donnees),
+                              "sha256": hashlib.sha256(donnees).hexdigest(),
+                              "reorientation": f"avant {args.avant} tourné vers +x autour de Y avant l'envoi"})
+    signaler(f"Modèle réorienté pour Tripo : avant {args.avant} → +X (fichier d'origine inchangé).")
+    return valeur
+
+
 def cmd_riggable(args):
     api, entrees = _contexte(args)
-    corps = {"input": _entree_modele(entrees, args.entree)}
+    corps = {"input": _entree_rig(entrees, args)}
     if args.a_blanc:
         return _a_blanc("/v3/animations/rig-check", corps)
     task_id = creer_tache(api, "/v3/animations/rig-check", corps)
@@ -1275,20 +1594,36 @@ def cmd_riggable(args):
     squelette = sortie.get("rig_type") or sortie.get("topology") or "?"
     if riggable:
         dire(f"Riggable : oui (squelette détecté : {squelette}). Tâche {task_id}.")
+        return OK
+    dire(f"Riggable : non. Tâche {task_id}.")
+    if args.avant == "+x":
+        dire("Tripo ne reconnaît un squelette que sur un modèle debout sur +Y, l'avant vers +X (l'orientation de "
+             "ses propres modèles), quelle que soit l'échelle. Si l'avant de ce modèle regarde ailleurs "
+             "(souvent -Z ou +Z après un passage par Godot ou Blender), relance avec --avant -z, +z ou -x. "
+             "Sinon, vérifie la pose : debout, bras écartés du corps (T-pose ou A-pose).")
     else:
-        dire(f"Riggable : non. Tâche {task_id}.")
+        dire(f"Le modèle a pourtant été tourné de {args.avant} vers +X. Vérifie que --avant décrit bien son "
+             "orientation, et sa pose : debout sur +Y, bras écartés du corps (T-pose ou A-pose).")
     return OK
 
 
 def cmd_rigger(args):
     _verifier_sortie(args, ["." + args.format])
-    if args.spec in ("unity", "unreal", "vrm") and args.modele in (None, "v1.0-20240301"):
+    if args.spec in ("unity", "unreal", "vrm") and args.modele == "v1.0-20240301":
         raise ErreurTripo(USAGE, "Les specs unity, unreal et vrm exigent --modele v2.5-20260210 ou v3.0-20260909.")
     api, entrees = _contexte(args)
-    corps = {"input": _entree_modele(entrees, args.entree)}
+    corps = {"input": _entree_rig(entrees, args)}
     _options(corps, args, (("modele", "model"), ("type_squelette", "rig_type"), ("spec", "spec")))
     corps["out_format"] = args.format
-    return executer(args, api, entrees, "/v3/animations/rig", corps, "modele", {"type": "animate_rig"})
+    meta = {"type": "animate_rig"}
+    if args.avant != "+x":
+        meta.update({"avant_origine": args.avant, "orientation_sortie": "avant +x, debout +y"})
+    code = executer(args, api, entrees, "/v3/animations/rig", corps, "modele", meta)
+    if args.avant != "+x" and not args.a_blanc:
+        dire(f"Le modèle riggé sort dans l'orientation de Tripo (avant vers +X). Pour retrouver l'orientation "
+             f"d'origine (avant {args.avant}), tourne son nœud de {ROTATION_GODOT_RETOUR[args.avant]} autour de Y "
+             "dans Godot.")
+    return code
 
 
 def cmd_animer(args):
@@ -1361,7 +1696,8 @@ def cmd_telecharger(args):
         tache = attendre(api, args.task_id, args.delai, args.intervalle)
     verifier_succes(tache)
     fiche = lire_fiche(args.sortie)
-    if fiche.get("task_id") not in (None, args.task_id):
+    id_conversion = (fiche.get("conversion") or {}).get("task_id")
+    if fiche.get("task_id") not in (None, args.task_id) and id_conversion != args.task_id:
         fiche = {}
     if not fiche:
         entree = tache.get("input") if isinstance(tache.get("input"), dict) else {}
@@ -1439,14 +1775,17 @@ def _generation(sp, depuis_image):
     sp.add_argument("--format", choices=FORMATS, default="glb",
                     help="glb par défaut ; fbx et obj passent par une conversion payante (sauf fbx avec --quad)")
     sp.add_argument("--modele", default=MODELE_DEFAUT, help=f"version du modèle Tripo (défaut : {MODELE_DEFAUT})")
-    sp.add_argument("--faces", type=int, help="nombre maximal de faces (face_limit)")
+    sp.add_argument("--faces", type=int, help="nombre maximal de faces (face_limit), souvent des quads : "
+                                              "compter jusqu'à 2 triangles par face")
     sp.add_argument("--sans-texture", action="store_true", help="géométrie seule (moins chère)")
     sp.add_argument("--sans-pbr", action="store_true", help="texture sans cartes PBR")
     sp.add_argument("--qualite-texture", choices=("standard", "detailed", "fast", "extreme"),
                     help="detailed et extreme coûtent plus ; fast et extreme dépendent de --version-texture")
     sp.add_argument("--version-texture", help="modèle de texture (texture_version), ex. v3.5-20260815")
     sp.add_argument("--qualite-geometrie", choices=("standard", "detailed"), help="detailed : supplément")
-    sp.add_argument("--taille-auto", action="store_true", help="mise à l'échelle réelle en mètres (auto_size)")
+    sp.add_argument("--taille-auto", action="store_true",
+                    help="auto_size : sans effet constaté sur l'échelle, qui reste d'environ 1 m ; "
+                         "mettre à l'échelle à l'import")
     sp.add_argument("--low-poly", action="store_true", help="smart_low_poly (supplément)")
     sp.add_argument("--quad", action="store_true", help="maillage en quads, sortie FBX (supplément)")
     sp.add_argument("--parties", action="store_true", help="génère des pièces séparées (generate_parts, supplément)")
@@ -1479,9 +1818,10 @@ def analyseur():
     e.add_argument("fichier")
 
     # Modèles
+    aide_negatif = f"ce qu'il faut éviter (negative_prompt, {LONGUEUR_MAX_NEGATIF} caractères au maximum)"
     t = commande("texte", cmd_texte, "modèle 3D depuis un prompt")
     t.add_argument("prompt")
-    t.add_argument("--negatif", help="ce qu'il faut éviter (negative_prompt)")
+    t.add_argument("--negatif", help=aide_negatif)
     _generation(t, depuis_image=False)
     i = commande("image", cmd_image, "modèle 3D depuis une image (fichier, URL, file_token ou task_id)")
     i.add_argument("chemin")
@@ -1498,10 +1838,12 @@ def analyseur():
     # Images
     it = commande("image-texte", cmd_image_texte, "image depuis un prompt")
     it.add_argument("prompt")
-    it.add_argument("--negatif")
-    it.add_argument("--modele", help="modèle d'image, ex. seedream_v4 (défaut de Tripo) ou seedream_v5")
-    it.add_argument("--taille", help="taille, ex. 1024x1024")
-    it.add_argument("--ratio", help="rapport largeur/hauteur, ex. 1:1")
+    it.add_argument("--negatif", help=aide_negatif)
+    it.add_argument("--modele", help="modèle d'image : seedream (défaut de Tripo, ex. seedream_v4 ou seedream_v5), "
+                                     "chat_image, ou un modèle banana")
+    it.add_argument("--taille", help="LARGEURxHAUTEUR pour seedream et chat_image ; seedream : de 2560x1440 "
+                                     "à 4096x4096 pixels au total, ex. 2048x2048")
+    it.add_argument("--ratio", help="rapport largeur/hauteur, ex. 1:1 (modèles banana seulement)")
     it.add_argument("--format-image", help="format de sortie, ex. png")
     _creation(it)
     ii = commande("image-image", cmd_image_image, "transforme une ou plusieurs images de référence")
@@ -1599,14 +1941,21 @@ def analyseur():
     _creation(cp)
 
     # Animation
-    rc = commande("riggable", cmd_riggable, "vérifie qu'un modèle peut être riggé (gratuit)")
+    aide_avant = ("direction vers laquelle regarde l'avant du modèle (GLB local) ; Tripo ne rigge que les modèles "
+                  "debout sur +Y, l'avant vers +X : le GLB est tourné autour de Y avant l'envoi (défaut : +x)")
+    rc = commande("riggable", cmd_riggable, "vérifie qu'un modèle peut être riggé (gratuit, sans fichier écrit)")
     rc.add_argument("entree")
-    rc.add_argument("--a-blanc", action="store_true")
+    rc.add_argument("--avant", choices=tuple(ROTATIONS_VERS_X), default="+x", help=aide_avant)
+    rc.add_argument("--a-blanc", action="store_true", help="affiche la requête sans l'envoyer")
     _commun(rc, sortie=False)
     rg = commande("rigger", cmd_rigger, "ajoute un squelette à un modèle")
     rg.add_argument("entree")
+    rg.add_argument("--avant", choices=tuple(ROTATIONS_VERS_X), default="+x",
+                    help=aide_avant + " ; le modèle riggé sort avant vers +X")
     rg.add_argument("--format", choices=("glb", "fbx"), default="glb")
-    rg.add_argument("--modele", help="v1.0-20240301 (défaut de Tripo), v2.5-20260210 ou v3.0-20260909")
+    rg.add_argument("--modele", default=MODELE_RIG_DEFAUT,
+                    help=f"modèle de rig : {', '.join(MODELES_RIG)} (défaut : {MODELE_RIG_DEFAUT} ; "
+                         "sans ce champ, l'API applique une valeur qu'elle refuse)")
     rg.add_argument("--type", dest="type_squelette",
                     choices=("biped", "quadruped", "hexapod", "octopod", "avian", "serpentine", "aquatic", "others"))
     rg.add_argument("--spec", choices=("tripo", "mixamo", "actorcore", "unity", "unreal", "vrm"))
@@ -1641,8 +1990,19 @@ def analyseur():
     return p
 
 
+def _coller_avant(argv):
+    """`--avant -z` : argparse lirait -z comme une option ; on le passe sous la forme --avant=-z."""
+    resultat = []
+    for valeur in argv:
+        if resultat and resultat[-1] == "--avant" and valeur in ROTATIONS_VERS_X:
+            resultat[-1] = f"--avant={valeur}"
+        else:
+            resultat.append(valeur)
+    return resultat
+
+
 def main(argv=None):
-    args = analyseur().parse_args(argv)
+    args = analyseur().parse_args(_coller_avant(sys.argv[1:] if argv is None else argv))
     try:
         return args.fonction(args)
     except ErreurTripo as exc:

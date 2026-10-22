@@ -4,8 +4,10 @@ Lancer depuis la racine du repo :
     python3 -m unittest discover -s plugins/tripo/tests -v
 """
 
+import importlib.util
 import json
 import os
+import socket
 import struct
 import subprocess
 import sys
@@ -18,8 +20,12 @@ ICI = os.path.dirname(os.path.abspath(__file__))
 SCRIPT = os.path.join(ICI, "..", "skills", "generer", "scripts", "tripo.py")
 CLE = "tsk_cle-de-test-ultra-secrete-0123456789"
 
+_spec = importlib.util.spec_from_file_location("tripo", SCRIPT)
+tripo = importlib.util.module_from_spec(_spec)
+_spec.loader.exec_module(tripo)
 
-def glb_triangle(echelle=2.0):
+
+def glb_triangle(echelle=2.0, normales=False, **extra):
     """GLB minimal : un triangle de 1 m × 1 m sous un nœud mis à l'échelle."""
     positions = struct.pack("<9f", 0, 0, 0, 1, 0, 0, 0, 1, 0)
     gltf = {
@@ -32,7 +38,15 @@ def glb_triangle(echelle=2.0):
                        "min": [0, 0, 0], "max": [1, 1, 0]}],
         "bufferViews": [{"buffer": 0, "byteOffset": 0, "byteLength": len(positions)}],
         "buffers": [{"byteLength": len(positions)}],
+        **extra,
     }
+    if normales:
+        # Normale du triangle (+Z), dans une vue entrelacée après les positions.
+        gltf["meshes"][0]["primitives"][0]["attributes"]["NORMAL"] = 1
+        gltf["accessors"].append({"bufferView": 1, "componentType": 5126, "count": 3, "type": "VEC3"})
+        gltf["bufferViews"].append({"buffer": 0, "byteOffset": len(positions), "byteLength": 36})
+        positions += struct.pack("<9f", 0, 0, 1, 0, 0, 1, 0, 0, 1)
+        gltf["buffers"][0]["byteLength"] = len(positions)
     bloc_json = json.dumps(gltf).encode("utf-8")
     bloc_json += b" " * (-len(bloc_json) % 4)
     total = 12 + 8 + len(bloc_json) + 8 + len(positions)
@@ -54,7 +68,7 @@ def sortie_selon_operation(base, task_id, operation, corps):
     if operation == "/v3/generation/image-to-splat":
         return {"model_url": f"{f}.ply?s=1"}
     if operation == "/v3/animations/rig-check":
-        return {"riggable": True, "rig_type": "biped"}
+        return {"riggable": not corps.get("_non_riggable"), "rig_type": "biped"}
     if operation == "/v3/animations/retarget":
         return {"model_urls": [f"{f}_1.glb?s=1", f"{f}_2.glb?s=1"]}
     if operation == "/v3/models/import":
@@ -102,8 +116,9 @@ class FauxTripo(BaseHTTPRequestHandler):
                 "progress": 100 if statut == "success" else 40,
                 "input": {"prompt": "caisse en bois", "model": "v3.1-20260211"}}
         if statut == "success":
-            data["output"] = sortie_selon_operation(self.server.base, task_id, operation,
-                                                    self.server.corps.get(task_id, {}))
+            corps = dict(self.server.corps.get(task_id, {}), _non_riggable=sc.get("non_riggable"))
+            base = sc.get("base_fichiers", self.server.base)
+            data["output"] = sortie_selon_operation(base, task_id, operation, corps)
             data["credits_consumed"] = 20
         if statut == "failed":
             data.update({"error_code": 5000, "error_msg": "generation failed"})
@@ -128,6 +143,22 @@ class FauxTripo(BaseHTTPRequestHandler):
                 return self._json(500, {"code": 500, "status": "error", "message": "internal"})
             return self._json(200, {"code": 0, "data": self._tache(self.path.rsplit("/", 1)[1])})
         if self.path.startswith("/fichiers/"):
+            if sc.get("coupures", 0) > 0:
+                # Coupure brutale (RST) avant toute réponse, comme le proxy d'un environnement cloud.
+                sc["coupures"] -= 1
+                self.connection.setsockopt(socket.SOL_SOCKET, socket.SO_LINGER, struct.pack("ii", 1, 0))
+                self.connection.close()
+                self.close_connection = True
+                return
+            if sc.get("partiels", 0) > 0:
+                # Réponse tronquée : la connexion se ferme avant la longueur annoncée.
+                sc["partiels"] -= 1
+                self.send_response(200)
+                self.send_header("Content-Length", "1000")
+                self.end_headers()
+                self.wfile.write(b"glTF")
+                self.close_connection = True
+                return
             if sc.get("fichier_expire"):
                 self.send_response(403)
                 self.send_header("Content-Length", "0")
@@ -162,6 +193,9 @@ class FauxTripo(BaseHTTPRequestHandler):
         sc = self.server.scenario
         if sc.get("cle_refusee"):
             return self._refus_cle()
+        if sc.get("limites", 0) > 0 and self.path.startswith("/v3/generation/"):
+            sc["limites"] -= 1
+            return self._json(429, {"code": 2000, "status": "error", "message": "concurrency limit"})
         erreur = sc.get("erreur_creation")
         if erreur and self.path.startswith("/v3/generation/"):
             statut, code, message = erreur
@@ -239,6 +273,7 @@ class BaseTest(unittest.TestCase):
         env["NO_PROXY"] = "127.0.0.1,localhost"
         env["TRIPO_API_BASE"] = self.serveur.base
         env["TRIPO_HOTES_FICHIERS"] = self.serveur.base
+        env["TRIPO_PAUSE_REESSAI"] = "0"
         if cle:
             env["TRIPO_API_KEY"] = cle
         env.update(env_extra or {})
@@ -302,6 +337,72 @@ class TestGeneration(BaseTest):
         self.assertIn("date", fiche)
         self.assertEqual(fiche["controle"]["triangles"], 1)
         self.assertEqual(fiche["controle"]["dimensions_m"], [2.0, 2.0, 0.0])
+        self.assertEqual(sorted(f["fichier"] for f in fiche["sorties"]),
+                         ["caisse.glb", "caisse_rendered_image.webp"], "pas de chemin absolu dans la fiche")
+        self.assertNotIn(self.dossier, json.dumps(fiche))
+
+    def test_fiche_chemins_relatifs_et_entree_hors_projet(self):
+        os.makedirs(self.chemin("concepts"))
+        os.makedirs(self.chemin("assets"))
+        dedans = self.chemin("concepts/ref.png")
+        with open(dedans, "wb") as f:
+            f.write(b"\x89PNG\r\n\x1a\n" + b"\0" * 32)
+        res = self.lancer("image", dedans, "--sortie", self.chemin("assets/a.glb"), "--intervalle", "0.01")
+        self.assertEqual(res.returncode, 0, res.stderr)
+        with open(self.chemin("assets/a.tripo.json"), encoding="utf-8") as f:
+            self.assertEqual(json.load(f)["entrees"][0]["fichier"], os.path.join("..", "concepts", "ref.png"))
+
+        ailleurs = tempfile.mkdtemp()
+        dehors = os.path.join(ailleurs, "hors_projet.png")
+        with open(dehors, "wb") as f:
+            f.write(b"\x89PNG\r\n\x1a\n" + b"\1" * 32)
+        res = self.lancer("image", dehors, "--sortie", self.chemin("assets/b.glb"), "--intervalle", "0.01")
+        self.assertEqual(res.returncode, 0, res.stderr)
+        with open(self.chemin("assets/b.tripo.json"), encoding="utf-8") as f:
+            fiche = json.load(f)
+        entree = fiche["entrees"][0]
+        self.assertNotIn("fichier", entree)
+        self.assertEqual(entree["nom"], "hors_projet.png")
+        self.assertEqual(len(entree["sha256"]), 64)
+        self.assertNotIn(ailleurs, json.dumps(fiche))
+
+    def test_negatif_trop_long(self):
+        res = self.lancer("texte", "caisse", "--negatif", "x" * 256, "--sortie", self.chemin("c.glb"))
+        self.assertEqual(res.returncode, 2)
+        self.assertIn("255", res.stderr)
+        self.assertIn("(256)", res.stderr)
+        self.assertEqual(self.serveur.requetes, [])
+        res = self.lancer("texte", "caisse", "--negatif", "x" * 255, "--sortie", self.chemin("c.glb"), "--a-blanc")
+        self.assertEqual(res.returncode, 0, res.stderr)
+
+    def test_telechargement_coupe_puis_repris(self):
+        self.serveur.scenario["coupures"] = 2
+        self.serveur.scenario["partiels"] = 1
+        res = self.lancer("texte", "x", "--sortie", self.chemin("x.glb"), "--intervalle", "0.01")
+        self.assertEqual(res.returncode, 0, res.stderr)
+        self.assertIn("coupée en cours de transfert", res.stderr)
+        self.assertIn("Nouvel essai", res.stderr)
+        with open(self.chemin("x.glb"), "rb") as f:
+            self.assertEqual(f.read(4), b"glTF")
+
+    def test_telechargement_toujours_coupe(self):
+        self.serveur.scenario["coupures"] = 99
+        res = self.lancer("texte", "lampe", "--sortie", self.chemin("lampe.glb"), "--intervalle", "0.01")
+        self.assertEqual(res.returncode, 1, "une coupure n'est pas un hôte bloqué (code 5)")
+        self.assertIn("abandonné après 4 essais", res.stderr)
+        self.assertIn(f"tripo.py telecharger tache-1 --sortie {self.chemin('lampe.glb')}", res.stderr)
+        self.assertIn("ne la relance pas", res.stderr)
+        modeles = [r for r in self.serveur.requetes if r["chemin"].startswith("/fichiers/tache-1.glb")]
+        self.assertEqual(len(modeles), 4)
+        with open(self.chemin("lampe.tripo.json"), encoding="utf-8") as f:
+            self.assertEqual(json.load(f)["etat"], "a_telecharger", "la tâche payée garde une trace")
+
+        self.serveur.scenario["coupures"] = 0
+        res = self.lancer("telecharger", "tache-1", "--sortie", self.chemin("lampe.glb"), "--intervalle", "0.01")
+        self.assertEqual(res.returncode, 0, res.stderr)
+        with open(self.chemin("lampe.tripo.json"), encoding="utf-8") as f:
+            fiche = json.load(f)
+        self.assertEqual((fiche["etat"], fiche["prompt"]), ("telecharge", "lampe"))
 
     def test_sans_texture_desactive_aussi_pbr(self):
         res = self.lancer("texte", "rocher", "--sortie", self.chemin("rocher.glb"),
@@ -326,7 +427,7 @@ class TestGeneration(BaseTest):
         self.assertEqual(json.loads(creation["corps"])["input"], "file_test_123")
         with open(self.chemin("ref.tripo.json"), encoding="utf-8") as f:
             fiche = json.load(f)
-        self.assertEqual(fiche["entrees"][0]["fichier"], image)
+        self.assertEqual(fiche["entrees"][0]["fichier"], "ref.png", "chemin relatif au dossier de la fiche")
         self.assertEqual(len(fiche["entrees"][0]["sha256"]), 64)
         self.assertEqual(fiche["parametres"]["input"], "<fichier envoyé : image>",
                          "le file_token éphémère n'est pas gardé dans la fiche")
@@ -485,13 +586,34 @@ class TestCapacites(BaseTest):
         self.assertEqual(res.returncode, 2)
 
     def test_image_texte(self):
-        res = self.ok("image-texte", "concept de caisse", "--modele", "seedream_v5", "--ratio", "1:1",
+        res = self.ok("image-texte", "concept de caisse", "--modele", "seedream_v5", "--taille", "2048x2048",
                       "--sortie", self.chemin("concept.png"))
         chemin, corps = self.creation()
         self.assertEqual(chemin, "/v3/generation/text-to-image")
-        self.assertEqual(corps, {"prompt": "concept de caisse", "model": "seedream_v5", "aspect_ratio": "1:1"})
+        self.assertEqual(corps, {"prompt": "concept de caisse", "model": "seedream_v5", "size": "2048x2048"})
         self.assertIn("Image écrite :", res.stdout)
         self.assertTrue(os.path.exists(self.chemin("concept.png")))
+
+    def test_image_texte_combinaisons_selon_le_modele(self):
+        def a_blanc(*options):
+            return self.lancer("image-texte", "caisse", *options, "--sortie", self.chemin("c.png"), "--a-blanc",
+                               cle=None)
+        res = a_blanc("--ratio", "1:1")
+        self.assertEqual(res.returncode, 2, "le modèle par défaut (seedream) refuse aspect_ratio")
+        self.assertIn("banana", res.stderr)
+        self.assertEqual(a_blanc("--modele", "chat_image", "--ratio", "16:9").returncode, 2)
+        self.assertEqual(a_blanc("--modele", "nano_banana", "--ratio", "1:1").returncode, 0)
+        res = a_blanc("--taille", "1024x1024")
+        self.assertEqual(res.returncode, 2, "seedream refuse 1024x1024 (pixels sous le minimum)")
+        self.assertIn("2048x2048", res.stderr)
+        self.assertEqual(a_blanc("--modele", "seedream_v4", "--taille", "2048x2048").returncode, 0)
+        self.assertEqual(a_blanc("--taille", "2560x1440").returncode, 0)
+        self.assertEqual(a_blanc("--taille", "8192x8192").returncode, 2)
+        self.assertEqual(a_blanc("--modele", "chat_image", "--taille", "1024x1024").returncode, 0)
+        self.assertEqual(a_blanc("--taille", "grand").returncode, 2)
+        res = a_blanc("--negatif", "y" * 300)
+        self.assertEqual(res.returncode, 2)
+        self.assertIn("(300)", res.stderr)
 
     def test_image_image_plusieurs_references(self):
         self.ok("image-image", self.image("a.png"), "https://exemple.test/b.png", "--prompt", "même objet, rouillé",
@@ -620,12 +742,69 @@ class TestCapacites(BaseTest):
         self.assertEqual(self.creation(), ("/v3/animations/rig-check", {"input": "tache-modele"}))
         self.assertIn("Riggable : oui (squelette détecté : biped)", res.stdout)
 
+    def test_riggable_non_explique_l_orientation(self):
+        self.serveur.scenario["non_riggable"] = True
+        res = self.ok("riggable", "tache-modele")
+        self.assertIn("Riggable : non", res.stdout)
+        self.assertIn("l'avant vers +X", res.stdout)
+        self.assertIn("--avant -z", res.stdout)
+
     def test_rigger(self):
         self.ok("rigger", "tache-modele", "--type", "quadruped", "--spec", "mixamo", "--sortie", self.chemin("r.glb"))
         self.assertEqual(self.creation(), ("/v3/animations/rig", {
-            "input": "tache-modele", "rig_type": "quadruped", "spec": "mixamo", "out_format": "glb"}))
-        res = self.lancer("rigger", "t", "--spec", "unity", "--sortie", self.chemin("r2.glb"))
+            "input": "tache-modele", "model": "v3.0-20260909", "rig_type": "quadruped", "spec": "mixamo",
+            "out_format": "glb"}), "sans --modele, un modèle de rig valide (le défaut de l'API est refusé)")
+        res = self.lancer("rigger", "t", "--modele", "v1.0-20240301", "--spec", "unity",
+                          "--sortie", self.chemin("r2.glb"))
         self.assertEqual(res.returncode, 2, "unity exige un modèle de rig récent")
+
+    def test_rigger_modele_par_defaut_a_blanc(self):
+        res = self.lancer("rigger", "t", "--sortie", self.chemin("r.glb"), "--a-blanc", cle=None)
+        self.assertEqual(res.returncode, 0, res.stderr)
+        self.assertIn('"model": "v3.0-20260909"', res.stdout)
+        res = self.lancer("rigger", "t", "--modele", "v2.5-20260210", "--sortie", self.chemin("r.glb"), "--a-blanc",
+                          cle=None)
+        self.assertIn('"model": "v2.5-20260210"', res.stdout)
+        aide = self.lancer("rigger", "--help", cle=None).stdout
+        self.assertIn("v3.0-20260909", aide)
+
+    def test_rigger_avant_moins_z_tourne_le_glb(self):
+        glb = self.chemin("perso.glb")
+        with open(glb, "wb") as f:
+            f.write(glb_triangle(echelle=1.0))
+        res = self.ok("rigger", glb, "--avant", "-z", "--sortie", self.chemin("perso_rig.glb"))
+        self.assertIn("réorienté", res.stderr)
+        self.assertIn("+90°", res.stdout)
+        envoi = [r for r in self.serveur.requetes if r["chemin"] == "/v3/files"][0]["corps"]
+        debut = envoi.index(b"glTF")
+        envoye = envoi[debut:envoi.rindex(b"\r\n--")]
+        _, gltf, binaire = tripo.lire_glb(envoye, "envoi")
+        self.assertEqual(struct.unpack_from("<9f", binaire),
+                         (0, 0, 0, 0, 0, 1, 0, 1, 0), "x devient z : l'avant -z passe sur +x")
+        with open(glb, "rb") as f:
+            self.assertEqual(f.read(), glb_triangle(echelle=1.0), "le fichier d'origine n'est pas modifié")
+        fiche = self.fiche("perso_rig.tripo.json")
+        self.assertEqual(fiche["entrees"][0]["fichier"], "perso.glb")
+        self.assertIn("reorientation", fiche["entrees"][0])
+        self.assertEqual(fiche["avant_origine"], "-z")
+
+    def test_riggable_avant(self):
+        glb = self.chemin("perso.glb")
+        with open(glb, "wb") as f:
+            f.write(glb_triangle())
+        res = self.lancer("riggable", glb, "--avant", "+z", "--a-blanc", cle=None)
+        self.assertEqual(res.returncode, 0, res.stderr)
+        self.assertIn("réorienté", res.stderr)
+        res = self.lancer("riggable", "tache-modele", "--avant", "-z", "--a-blanc", cle=None)
+        self.assertEqual(res.returncode, 2, "un task_id Tripo est déjà orienté vers +X")
+        rigge = self.chemin("rigge.glb")
+        with open(rigge, "wb") as f:
+            f.write(glb_triangle(skins=[{"joints": [0]}]))
+        res = self.lancer("riggable", rigge, "--avant", "-z", "--a-blanc", cle=None)
+        self.assertEqual(res.returncode, 2)
+        self.assertIn("réorientation impossible", res.stderr)
+        aide = self.lancer("riggable", "--help", cle=None).stdout
+        self.assertNotIn("--sortie", aide, "riggable n'écrit pas de fichier")
 
     def test_animer_plusieurs_animations(self):
         self.ok("animer", "tache-rig", "--animation", "walk", "--animation", "preset:run", "--sur-place",
@@ -719,8 +898,24 @@ class TestErreurs(BaseTest):
         self.serveur.scenario["erreur_creation"] = (429, 2000, "concurrency limit")
         res = self.lancer("texte", "x", "--sortie", self.chemin("x.glb"))
         self.assertEqual(res.returncode, 9)
+        self.assertIn("une seule tâche à la fois", res.stderr)
         creations = [r for r in self.serveur.requetes if r["methode"] == "POST"]
-        self.assertEqual(len(creations), 1, "une création n'est jamais rejouée automatiquement")
+        self.assertEqual(len(creations), len(tripo.ATTENTES_LIMITE) + 1, "quelques essais, puis abandon")
+
+    def test_limite_passagere_puis_creation(self):
+        self.serveur.scenario["limites"] = 2
+        res = self.lancer("image-texte", "caisse", "--sortie", self.chemin("c.png"), "--intervalle", "0.01")
+        self.assertEqual(res.returncode, 0, res.stderr)
+        self.assertIn("tâches simultanées", res.stderr)
+        creations = [r for r in self.serveur.requetes if r["chemin"] == "/v3/generation/text-to-image"]
+        self.assertEqual(len(creations), 3)
+
+    def test_erreur_serveur_a_la_creation_non_rejouee(self):
+        self.serveur.scenario["erreur_creation"] = (500, 500, "internal")
+        res = self.lancer("texte", "x", "--sortie", self.chemin("x.glb"))
+        self.assertEqual(res.returncode, 1)
+        creations = [r for r in self.serveur.requetes if r["methode"] == "POST"]
+        self.assertEqual(len(creations), 1, "une création qui a pu aboutir n'est jamais rejouée")
 
     def test_tache_echouee(self):
         self.serveur.scenario["suite"] = ["running", "failed"]
@@ -783,6 +978,16 @@ class TestReseauBloque(BaseTest):
         self.assertIn("✗ openapi.tripo3d.invalid (API)", res.stdout)
         self.assertIn("✗ cdn.tripo3d.invalid (fichiers)", res.stdout)
 
+    def test_telechargement_bloque_par_le_proxy(self):
+        # API joignable, fichiers sur un hôte refusé : code 5 tout de suite, avec la commande de reprise.
+        self.serveur.scenario["base_fichiers"] = "https://fichiers.tripo3d.invalid"
+        res = self.lancer("texte", "x", "--sortie", self.chemin("x.glb"), "--intervalle", "0.01",
+                          env_extra={"HTTPS_PROXY": self.url_proxy, "https_proxy": self.url_proxy})
+        self.assertEqual(res.returncode, 5)
+        self.assertIn("fichiers.tripo3d.invalid est bloqué", res.stderr)
+        self.assertNotIn("Nouvel essai", res.stderr, "un hôte refusé n'est pas réessayé")
+        self.assertIn("tripo.py telecharger tache-1 --sortie", res.stderr)
+
     def test_hote_des_fichiers_bloque(self):
         # API joignable, mais l'URL du modèle vise un hôte que le proxy refuse.
         res = self.lancer("verifier", env_extra={
@@ -792,6 +997,34 @@ class TestReseauBloque(BaseTest):
         self.assertIn("✓ 127.0.0.1 (API)", res.stdout)
         self.assertIn("fichiers.tripo3d.invalid est bloqué", res.stdout)
         self.assertIn("Crédits disponibles", res.stdout)
+
+
+class TestReorientation(unittest.TestCase):
+    def test_avant_moins_z_vers_plus_x_avec_echelle_et_normales(self):
+        source = glb_triangle(echelle=2.0, normales=True)
+        tourne = tripo.reorienter_glb(source, "-z", "t.glb")
+        _, gltf, binaire = tripo.lire_glb(tourne, "t.glb")
+        self.assertNotIn("scale", gltf["nodes"][0], "la transformation du nœud est appliquée aux sommets")
+        self.assertEqual(struct.unpack_from("<9f", binaire), (0, 0, 0, 0, 0, 2, 0, 2, 0))
+        self.assertEqual(struct.unpack_from("<3f", binaire, 36), (-1, 0, 0), "le dos (+Z) passe sur -X")
+        self.assertEqual((gltf["accessors"][0]["min"], gltf["accessors"][0]["max"]), ([0, 0, 0], [0, 2, 2]))
+
+    def test_les_quatre_orientations(self):
+        attendu = {"+x": (1, 0, 0), "-z": (0, 0, 1), "+z": (0, 0, -1), "-x": (-1, 0, 0)}
+        for avant, sommet in attendu.items():
+            _, _, binaire = tripo.lire_glb(tripo.reorienter_glb(glb_triangle(echelle=1.0), avant, "t.glb"), "t")
+            self.assertEqual(struct.unpack_from("<3f", binaire, 12), sommet, avant)
+        # Inverse : l'avant indiqué arrive bien sur +X.
+        for avant, rotation in tripo.ROTATIONS_VERS_X.items():
+            axe = {"+x": (1, 0, 0), "-x": (-1, 0, 0), "+z": (0, 0, 1), "-z": (0, 0, -1)}[avant]
+            self.assertEqual(tripo._appliquer3(rotation, axe), [1, 0, 0], avant)
+
+    def test_refus(self):
+        for extra in ({"skins": [{"joints": [0]}]},
+                      {"extensionsUsed": ["KHR_draco_mesh_compression"]}):
+            with self.assertRaises(tripo.ErreurTripo) as ctx:
+                tripo.reorienter_glb(glb_triangle(**extra), "-z", "t.glb")
+            self.assertEqual(ctx.exception.code, tripo.USAGE)
 
 
 class TestHook(unittest.TestCase):
