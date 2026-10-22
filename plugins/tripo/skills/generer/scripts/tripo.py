@@ -1,7 +1,14 @@
 #!/usr/bin/env python3
 """Client en ligne de commande de l'API Tripo 3D (apiv3), bibliothèque standard uniquement.
 
-Sous-commandes : verifier, texte, image, statut, telecharger, inspecter.
+Sous-commandes :
+  compte      verifier, consommation, envoyer
+  modèles     texte, image, multivue
+  images      image-texte, image-image, image-multivue, editer-multivue, splat, profondeur
+  traitement  retexturer, convertir, importer, decimer, uv, segmenter, segmenter-intelligent, completer
+  animation   riggable, rigger, animer
+  tâches      statut, taches, telecharger, brut
+  local       inspecter
 La clé est lue dans la variable d'environnement TRIPO_API_KEY ; elle n'est jamais affichée.
 Lancer `tripo.py <sous-commande> --help` pour les options, et voir ../SKILL.md pour l'usage.
 """
@@ -28,8 +35,16 @@ API_BASE_DEFAUT = "https://openapi.tripo3d.ai"
 HOTES_FICHIERS_DEFAUT = ["https://tripo-data.rg1.data.tripo3d.com"]
 MODELE_DEFAUT = "v3.1-20260211"
 FORMATS = ("glb", "fbx", "obj")
-EXTENSIONS_IMAGE = (".png", ".jpg", ".jpeg")
+FORMATS_CONVERSION = ("gltf", "usdz", "fbx", "obj", "stl", "3mf")
+EXTENSIONS_IMAGE = (".png", ".jpg", ".jpeg", ".webp")
+EXTENSIONS_MODELE = (".glb", ".gltf", ".fbx", ".obj", ".stl")
+TYPES_MIME = {
+    ".png": "image/png", ".jpg": "image/jpeg", ".jpeg": "image/jpeg", ".webp": "image/webp",
+    ".glb": "model/gltf-binary", ".gltf": "model/gltf+json",
+}
 TAILLE_MAX_IMAGE = 20 * 1024 * 1024
+TAILLE_MAX_MODELE = 150 * 1024 * 1024
+TAILLE_MAX_MULTIPART = 50 * 1024 * 1024
 LONGUEUR_MAX_PROMPT = 1024
 STATUTS_FINAUX = ("success", "failed", "cancelled", "banned", "expired")
 AGENT = "tripo-plugin-quiche-lorraine-games/1"
@@ -214,10 +229,11 @@ def _erreur_api(statut, code, message, suggestion, trace):
     return ErreurTripo(ERREUR, f"Erreur de l'API Tripo (HTTP {statut}, code {code}) : {detail}{suffixe}")
 
 
+
 def _multipart(champ, chemin):
     frontiere = "----tripo" + uuid.uuid4().hex
     nom = os.path.basename(chemin)
-    type_fichier = "image/png" if nom.lower().endswith(".png") else "image/jpeg"
+    type_fichier = TYPES_MIME.get(os.path.splitext(nom)[1].lower(), "application/octet-stream")
     with open(chemin, "rb") as f:
         contenu = f.read()
     corps = (
@@ -226,6 +242,84 @@ def _multipart(champ, chemin):
         f"Content-Type: {type_fichier}\r\n\r\n"
     ).encode("utf-8") + contenu + f"\r\n--{frontiere}--\r\n".encode("utf-8")
     return corps, f"multipart/form-data; boundary={frontiere}"
+
+
+# ---------------------------------------------------------------------------
+# Fichiers d'entrée : envoi et résolution (fichier local, URL, file_token ou task_id)
+# ---------------------------------------------------------------------------
+
+def _controler_fichier(chemin, extensions):
+    ext = os.path.splitext(chemin)[1].lower()
+    if ext not in extensions:
+        raise ErreurTripo(USAGE, f"{chemin} : extension {ext or '(aucune)'} non acceptée ici "
+                                 f"({', '.join(extensions)}).")
+    taille = os.path.getsize(chemin)
+    limite = TAILLE_MAX_IMAGE if ext in EXTENSIONS_IMAGE else TAILLE_MAX_MODELE
+    if taille > limite:
+        raise ErreurTripo(USAGE, f"{chemin} dépasse {limite // (1024 * 1024)} Mo, la limite de Tripo.")
+    return taille
+
+
+def envoyer_fichier(api, chemin):
+    """Envoie un fichier local et renvoie son file_token (multipart jusqu'à 50 Mo, URL pré-signée au-delà)."""
+    if os.path.getsize(chemin) <= TAILLE_MAX_MULTIPART:
+        data = api.appel("POST", "/v3/files", multipart=_multipart("file", chemin))
+        jeton = data.get("file_token") if isinstance(data, dict) else None
+        if not jeton:
+            raise ErreurTripo(ERREUR, f"Envoi de {chemin} : réponse sans file_token.")
+        return str(jeton)
+    ext = os.path.splitext(chemin)[1].lstrip(".").lower()
+    data = api.appel("POST", "/v3/files/presign", json_corps={"format": ext})
+    url = (data.get("presigned_url") or data.get("upload_url")) if isinstance(data, dict) else None
+    jeton = data.get("file_token") if isinstance(data, dict) else None
+    if not url or not jeton:
+        raise ErreurTripo(ERREUR, f"Envoi de {chemin} : réponse de pré-signature incomplète.")
+    with open(chemin, "rb") as f:
+        contenu = f.read()
+    statut, _, _ = requete("PUT", url, contenu, {
+        "Content-Type": TYPES_MIME.get("." + ext, "application/octet-stream"),
+        "Content-Length": str(len(contenu)),
+    }, delai=600)
+    if statut >= 400:
+        raise ErreurTripo(ERREUR, f"Envoi de {chemin} vers {hote(url)} refusé (HTTP {statut}).")
+    return str(jeton)
+
+
+class Entrees:
+    """Résout les entrées d'une commande et garde leur description pour le .tripo.json."""
+
+    def __init__(self, api, a_blanc):
+        self.api = api
+        self.a_blanc = a_blanc
+        self.liste = []
+        self.jetons = {}
+
+    def resoudre(self, valeur, role, extensions=EXTENSIONS_IMAGE, references=True):
+        valeur = str(valeur).strip()
+        if not valeur:
+            raise ErreurTripo(USAGE, f"Entrée « {role} » vide.")
+        if os.path.isfile(valeur):
+            taille = _controler_fichier(valeur, extensions)
+            with open(valeur, "rb") as f:
+                empreinte = hashlib.sha256(f.read()).hexdigest()
+            self.liste.append({"role": role, "fichier": valeur, "octets": taille, "sha256": empreinte})
+            if self.a_blanc:
+                return f"<file_token de {os.path.basename(valeur)}>"
+            jeton = envoyer_fichier(self.api, valeur)
+            self.jetons[jeton] = f"<fichier envoyé : {role}>"
+            signaler(f"Fichier envoyé : {valeur}")
+            return jeton
+        if valeur.startswith(("http://", "https://")):
+            self.liste.append({"role": role, "url": valeur})
+            return valeur
+        if os.sep in valeur or "/" in valeur or os.path.splitext(valeur)[1] and not valeur.startswith("file_"):
+            raise ErreurTripo(USAGE, f"Fichier introuvable : {valeur}")
+        if not references:
+            raise ErreurTripo(USAGE, f"« {role} » attend un fichier local ou une URL, pas une référence ({valeur}).")
+        nature = "file_token" if valeur.startswith("file_") else "task_id"
+        self.liste.append({"role": role, nature: valeur})
+        return valeur
+
 
 
 # ---------------------------------------------------------------------------
@@ -297,14 +391,6 @@ def verifier_succes(tache):
         f"La tâche {task_id} a échoué (statut « {statut} »){precision}. Tripo ne débite pas les tâches "
         "échouées. Ajuste le prompt ou l'image avant de proposer une nouvelle tentative."))
 
-
-def url_modele(tache):
-    sortie = tache.get("output") or {}
-    for cle in ("model_url", "pbr_model_url", "model", "pbr_model", "base_model_url", "base_model"):
-        valeur = sortie.get(cle)
-        if isinstance(valeur, str) and valeur:
-            return valeur
-    raise ErreurTripo(ERREUR, f"La tâche {tache.get('task_id', '?')} est terminée mais ne donne pas d'URL de modèle.")
 
 
 def telecharger_fichier(url, destination, task_id):
@@ -516,8 +602,148 @@ def maintenant():
     return datetime.datetime.now(datetime.timezone.utc).replace(microsecond=0).isoformat()
 
 
+
+
 # ---------------------------------------------------------------------------
-# Sous-commandes
+# Sorties d'une tâche : collecte des URL, téléchargement, contrôle
+# ---------------------------------------------------------------------------
+
+CLES_MODELE = ("model_url", "pbr_model_url", "model", "pbr_model", "base_model_url", "base_model")
+CLES_IMAGE = ("generated_image_url", "image_url", "generated_image", "image")
+CLES_PROFONDEUR = ("depth_image_url", "depth_image")
+EXT_PAR_DEFAUT = {"video": ".mp4", "image": ".png", "render": ".png", "depth": ".png", "view": ".png"}
+
+# Nature de la sortie principale selon le type de tâche renvoyé par l'API.
+NATURE_PAR_TYPE = {
+    "text_to_image": "image", "generate_image": "image", "image_to_image": "image",
+    "generate_multiview_image": "multivue", "image_to_multiview": "multivue",
+    "edit_multiview_image": "multivue", "edit_multiview": "multivue",
+    "image_to_depth": "profondeur", "image_to_splat": "splat",
+}
+
+
+def _etiquette(texte):
+    texte = str(texte).lower().replace("preset:", "")
+    return "".join(c if c.isalnum() else "_" for c in texte).strip("_") or "x"
+
+
+def collecter_urls(sortie):
+    """Renvoie [(clé d'origine, nom de fichier court, url)] pour toutes les URL d'une sortie, sans doublon."""
+    trouves = []
+
+    def ajouter(cle, nom, url):
+        if isinstance(url, str) and url.startswith(("http://", "https://")) and url not in [u for _, _, u in trouves]:
+            trouves.append((cle, _etiquette(nom), url))
+
+    def parcourir(objet):
+        for cle, valeur in (objet or {}).items():
+            nom = cle[:-4] if cle.endswith("_url") else cle[:-5] if cle.endswith("_urls") else cle
+            if isinstance(valeur, str):
+                ajouter(cle, nom, valeur)
+            elif isinstance(valeur, dict):
+                parcourir(valeur)
+            elif isinstance(valeur, list):
+                for i, element in enumerate(valeur, 1):
+                    if isinstance(element, str):
+                        ajouter(cle, f"{nom}_{i}", element)
+                    elif isinstance(element, dict):
+                        url = element.get("url") or element.get("model_url")
+                        etiquette = element.get("animation") or element.get("name") or i
+                        if url:
+                            ajouter(cle, f"{nom}_{etiquette}", url)
+                        else:
+                            parcourir(element)
+
+    parcourir(sortie if isinstance(sortie, dict) else {})
+    return trouves
+
+
+def _principale(urls, nature):
+    cles = {"modele": CLES_MODELE, "image": CLES_IMAGE, "profondeur": CLES_PROFONDEUR,
+            "splat": CLES_MODELE, "multivue": ()}[nature]
+    for cle_voulue in cles:
+        for entree in urls:
+            if entree[0] == cle_voulue:
+                return entree
+    if nature == "modele":
+        # Sortie sans clé connue (ex. model_urls d'une animation) : seul fichier 3D, s'il est unique.
+        modeles = [e for e in urls if not any(m in e[1] for m in ("image", "render", "video", "view", "depth"))]
+        if len(modeles) == 1:
+            return modeles[0]
+    if nature == "splat" and urls:
+        return urls[0]
+    return None
+
+
+def deviner_nature(tache):
+    nature = NATURE_PAR_TYPE.get(str(tache.get("type") or ""))
+    if nature:
+        return nature
+    urls = collecter_urls(tache.get("output"))
+    cles = {c for c, _, _ in urls}
+    if cles & set(CLES_MODELE) or any(c.endswith("_urls") for c in cles):
+        return "modele"
+    if cles & set(CLES_IMAGE):
+        return "image"
+    if cles & set(CLES_PROFONDEUR):
+        return "profondeur"
+    return "multivue" if urls else "modele"
+
+
+def _extension_url(url, nom):
+    ext = os.path.splitext(urllib.parse.urlsplit(url).path)[1].lower()
+    if ext:
+        return ext
+    for indice, defaut in EXT_PAR_DEFAUT.items():
+        if indice in nom:
+            return defaut
+    return ".glb"
+
+
+def telecharger_sorties(tache, sortie, nature, task_id, principale_requise=True):
+    """Télécharge la sortie principale dans `sortie` et les autres à côté (<base>_<nom><ext>)."""
+    urls = collecter_urls(tache.get("output"))
+    principale = _principale(urls, nature)
+    if principale is None and principale_requise and nature != "multivue":
+        raise ErreurTripo(ERREUR, f"La tâche {task_id} est terminée mais ne donne pas de fichier "
+                                  f"de type « {nature} ». Regarde `tripo.py statut {task_id}`.")
+    racine = os.path.splitext(sortie)[0]
+    fichiers = []
+    for cle, nom, url in urls:
+        est_principale = principale is not None and url == principale[2]
+        destination = sortie if est_principale else f"{racine}_{nom}{_extension_url(url, nom)}"
+        if not est_principale and os.path.abspath(destination) == os.path.abspath(sortie):
+            destination = f"{racine}_{nom}_2{_extension_url(url, nom)}"
+        try:
+            hote_fichier, octets = telecharger_fichier(url, destination, task_id)
+        except ErreurTripo as exc:
+            if est_principale or exc.code == RESEAU:
+                raise
+            signaler(f"Sortie secondaire « {nom} » non téléchargée : {exc.message}")
+            continue
+        fichiers.append({"role": "principale" if est_principale else nom, "fichier": destination,
+                         "hote": hote_fichier, "octets": octets})
+        if est_principale:
+            ext_url = os.path.splitext(urllib.parse.urlsplit(url).path)[1].lower()
+            ext_sortie = os.path.splitext(sortie)[1].lower()
+            if ext_url and ext_url != ext_sortie:
+                signaler(f"Attention : Tripo fournit un fichier {ext_url}, écrit sous {sortie}.")
+    if principale is not None and nature in ("modele", "splat"):
+        with open(sortie, "rb") as f:
+            est_glb = f.read(4) == b"glTF"
+        if est_glb != sortie.lower().endswith(".glb"):
+            os.remove(sortie)
+            raise ErreurTripo(USAGE, (
+                f"Le fichier principal de la tâche {task_id} {'est' if est_glb else 'n’est pas'} un GLB, "
+                f"ce qui ne correspond pas à {sortie}. Change l'extension de --sortie ; pour un autre format, "
+                "passe par `convertir`, ou donne à `telecharger` le task_id de la conversion."))
+    if not fichiers and principale_requise:
+        raise ErreurTripo(ERREUR, f"La tâche {task_id} ne donne aucun fichier à télécharger.")
+    return fichiers
+
+
+# ---------------------------------------------------------------------------
+# Exécution commune d'une tâche : création, suivi, téléchargement, fiche
 # ---------------------------------------------------------------------------
 
 def base_api(args):
@@ -533,6 +759,134 @@ def hotes_fichiers(args):
         valeurs = HOTES_FICHIERS_DEFAUT
     return [v if "://" in v else "https://" + v for v in valeurs]
 
+
+def _api(args):
+    return Api(base_api(args), lire_cle())
+
+
+def _contexte(args):
+    """Api et résolveur d'entrées ; en mode --a-blanc, ni clé ni réseau."""
+    a_blanc = getattr(args, "a_blanc", False)
+    api = None if a_blanc else _api(args)
+    return api, Entrees(api, a_blanc)
+
+
+def _verifier_sortie(args, extensions=None):
+    sortie = args.sortie
+    if extensions and not sortie.lower().endswith(tuple(extensions)):
+        raise ErreurTripo(USAGE, f"--sortie doit finir par {' ou '.join(extensions)}.")
+    if os.path.exists(sortie) and not args.ecraser:
+        raise ErreurTripo(USAGE, f"{sortie} existe déjà. Choisis un autre nom ou ajoute --ecraser.")
+
+
+def _ajouter_params(corps, params):
+    for brut in params or []:
+        if "=" not in brut:
+            raise ErreurTripo(USAGE, f"--param attend CLE=VALEUR, pas « {brut} ».")
+        cle, valeur = brut.split("=", 1)
+        cle = cle.strip()
+        if cle in corps:
+            raise ErreurTripo(USAGE, f"Le paramètre « {cle} » est déjà fixé par une option de la commande.")
+        try:
+            corps[cle] = json.loads(valeur)
+        except json.JSONDecodeError:
+            corps[cle] = valeur
+    return corps
+
+
+def _anonymiser(valeur, jetons):
+    """Remplace dans les paramètres les file_token éphémères par le rôle de l'entrée."""
+    if isinstance(valeur, str):
+        return jetons.get(valeur, valeur)
+    if isinstance(valeur, list):
+        return [_anonymiser(v, jetons) for v in valeur]
+    if isinstance(valeur, dict):
+        return {k: _anonymiser(v, jetons) for k, v in valeur.items()}
+    return valeur
+
+
+def _a_blanc(chemin, corps):
+    dire(f"À blanc : POST {chemin}")
+    dire(json.dumps(corps, ensure_ascii=False, indent=2))
+    dire("Aucune requête envoyée, aucun crédit consommé.")
+    return OK
+
+
+def executer(args, api, entrees, chemin, corps, nature, meta=None, conversion=None, principale_requise=True):
+    _ajouter_params(corps, getattr(args, "param", None))
+    if args.a_blanc:
+        return _a_blanc(chemin, corps)
+    task_id = creer_tache(api, chemin, corps)
+    dire(f"Tâche créée : {task_id}")
+    fiche = {
+        "outil": "plugin tripo (quiche-lorraine-games), scripts/tripo.py",
+        "date": maintenant(),
+        "api": api.base,
+        "operation": chemin,
+        "task_id": task_id,
+        "modele_tripo": corps.get("model"),
+        **{k: v for k, v in (meta or {}).items() if v is not None},
+        "entrees": entrees.liste,
+        "parametres": _anonymiser(corps, entrees.jetons),
+        "nature": nature,
+        "fichier": os.path.basename(args.sortie),
+        "etat": "en_cours",
+    }
+    if getattr(args, "sans_attendre", False):
+        ecrire_fiche(args.sortie, fiche)
+        dire(f"Sans attente. Récupère le résultat avec : tripo.py telecharger {task_id} --sortie {args.sortie}")
+        return OK
+    tache = attendre(api, task_id, args.delai, args.intervalle)
+    verifier_succes(tache)
+    return finaliser(args, api, tache, fiche, nature, conversion, principale_requise)
+
+
+def finaliser(args, api, tache, fiche, nature, conversion=None, principale_requise=True):
+    task_id = tache.get("task_id") or fiche["task_id"]
+    tache_fichiers = tache
+    if conversion:
+        conversion_id = creer_tache(api, "/v3/models/convert", {"input": task_id, "format": conversion.upper()})
+        dire(f"Conversion en {conversion.upper()} : tâche {conversion_id}")
+        tache_fichiers = attendre(api, conversion_id, args.delai, args.intervalle)
+        verifier_succes(tache_fichiers)
+        fiche["conversion"] = {"task_id": conversion_id, "format": conversion,
+                               "credits": tache_fichiers.get("credits_consumed")}
+    fichiers = telecharger_sorties(tache_fichiers, args.sortie, nature, task_id, principale_requise)
+    fiche.update({
+        "etat": "telecharge",
+        "date_telechargement": maintenant(),
+        "credits": tache.get("credits_consumed"),
+        "fichier": os.path.basename(args.sortie),
+        "sorties": fichiers,
+        "hote_fichier": fichiers[0]["hote"] if fichiers else None,
+    })
+    if not fiche.get("modele_tripo"):
+        entree = tache.get("input") if isinstance(tache.get("input"), dict) else {}
+        fiche["modele_tripo"] = entree.get("model") or tache.get("model_version")
+    resume = None
+    if os.path.exists(args.sortie) and args.sortie.lower().endswith(".glb"):
+        controle = inspecter_glb(args.sortie)
+        fiche["controle"] = controle
+        resume = resume_controle(controle)
+        limite = (fiche.get("parametres") or {}).get("face_limit")
+        if isinstance(limite, int) and limite > 0 and controle["triangles"] > limite * 1.05:
+            signaler(f"Attention : {controle['triangles']} triangles pour une limite demandée de {limite}.")
+    chemin = ecrire_fiche(args.sortie, fiche)
+    libelles = {"modele": "Modèle écrit", "image": "Image écrite", "profondeur": "Carte de profondeur écrite",
+                "splat": "Splat écrit"}
+    for f in fichiers:
+        detail = resume if f["fichier"] == args.sortie and resume else _taille_lisible(f["octets"])
+        libelle = libelles.get(nature, "Fichier écrit") if f["role"] == "principale" else f"Fichier écrit ({f['role']})"
+        dire(f"{libelle} : {f['fichier']} ({detail})")
+    if not fichiers:
+        dire(f"Tâche {task_id} réussie, sans fichier à télécharger : réutilise son task_id.")
+    dire(f"Fiche de traçabilité : {chemin}")
+    return OK
+
+
+# ---------------------------------------------------------------------------
+# Compte
+# ---------------------------------------------------------------------------
 
 def cmd_verifier(args):
     premier_echec = None
@@ -572,35 +926,79 @@ def cmd_verifier(args):
     return premier_echec or OK
 
 
-def _parametres_communs(args):
+def cmd_consommation(args):
+    api = _api(args)
+    chemin = f"/v3/account/usage?limit={args.limite}&offset={args.decalage}"
+    data = api.appel("GET", chemin, essais=2)
+    lignes = data.get("items") if isinstance(data, dict) else data
+    lignes = [l for l in (lignes or []) if isinstance(l, dict)]
+    if not lignes:
+        dire("Aucune tâche dans l'historique.")
+        return OK
+    total = 0.0
+    for l in lignes:
+        credits = l.get("credits_consumed")
+        try:
+            total += float(credits or 0)
+        except (TypeError, ValueError):
+            pass
+        dire(f"{l.get('created_at', '?')}  {l.get('task_id', '?')}  {l.get('type', '?')}  "
+             f"{l.get('status', '?')}  {credits if credits is not None else '?'} crédits")
+    dire(f"Total sur ces {len(lignes)} tâches : {total:g} crédits.")
+    return OK
+
+
+def cmd_envoyer(args):
+    if not os.path.isfile(args.fichier):
+        raise ErreurTripo(USAGE, f"Fichier introuvable : {args.fichier}")
+    _controler_fichier(args.fichier, EXTENSIONS_IMAGE + EXTENSIONS_MODELE)
+    jeton = envoyer_fichier(_api(args), args.fichier)
+    dire(f"file_token : {jeton}")
+    dire("Ce jeton remplace le fichier comme entrée d'une autre commande (il n'est pas permanent).")
+    return OK
+
+
+# ---------------------------------------------------------------------------
+# Génération de modèles : texte, image, multivue
+# ---------------------------------------------------------------------------
+
+def _parametres_generation(args, depuis_image):
+    if args.parties and (not args.sans_texture or args.quad or args.low_poly):
+        raise ErreurTripo(USAGE, "--parties exige --sans-texture, sans --quad ni --low-poly (règle de Tripo).")
+    if args.quad and args.format != "fbx":
+        raise ErreurTripo(USAGE, "--quad produit un FBX : ajoute --format fbx et une --sortie en .fbx.")
     corps = {"model": args.modele}
     texture = not args.sans_texture
     corps["texture"] = texture
     corps["pbr"] = texture and not args.sans_pbr
     if texture and args.qualite_texture:
         corps["texture_quality"] = args.qualite_texture
+    if texture and args.version_texture:
+        corps["texture_version"] = args.version_texture
+    if args.qualite_geometrie:
+        corps["geometry_quality"] = args.qualite_geometrie
     if args.faces is not None:
         if args.faces <= 0:
             raise ErreurTripo(USAGE, "--faces doit être un entier positif.")
         corps["face_limit"] = args.faces
-    if args.taille_auto:
-        corps["auto_size"] = True
-    if args.low_poly:
-        corps["smart_low_poly"] = True
+    for option, champ in (("taille_auto", "auto_size"), ("low_poly", "smart_low_poly"),
+                          ("quad", "quad"), ("parties", "generate_parts")):
+        if getattr(args, option):
+            corps[champ] = True
     if args.graine is not None:
         corps["model_seed"] = args.graine
         if texture:
             corps["texture_seed"] = args.graine
+    if depuis_image:
+        if args.orientation:
+            corps["orientation"] = args.orientation
+        if texture and args.alignement_texture:
+            corps["texture_alignment"] = args.alignement_texture
     return corps
 
 
-def _verifier_sortie(args):
-    sortie = args.sortie
-    attendu = "." + args.format
-    if not sortie.lower().endswith(attendu):
-        raise ErreurTripo(USAGE, f"--sortie doit finir par {attendu} (format choisi : {args.format}).")
-    if os.path.exists(sortie) and not args.ecraser:
-        raise ErreurTripo(USAGE, f"{sortie} existe déjà. Choisis un autre nom ou ajoute --ecraser.")
+def _conversion(args):
+    return args.format if args.format != "glb" and not args.quad else None
 
 
 def cmd_texte(args):
@@ -609,143 +1007,355 @@ def cmd_texte(args):
         raise ErreurTripo(USAGE, "Le prompt est vide.")
     if len(prompt) > LONGUEUR_MAX_PROMPT:
         raise ErreurTripo(USAGE, f"Le prompt dépasse {LONGUEUR_MAX_PROMPT} caractères ({len(prompt)}).")
-    _verifier_sortie(args)
+    _verifier_sortie(args, ["." + args.format])
     corps = {"prompt": prompt}
     if args.negatif:
         corps["negative_prompt"] = args.negatif
-    corps.update(_parametres_communs(args))
+    corps.update(_parametres_generation(args, depuis_image=False))
     if args.graine is not None:
         corps["image_seed"] = args.graine
-    source = {"type": "text_to_model", "prompt": prompt}
+    meta = {"type": "text_to_model", "prompt": prompt}
     if args.negatif:
-        source["negatif"] = args.negatif
-    return _generer(args, "/v3/generation/text-to-model", corps, source)
+        meta["negatif"] = args.negatif
+    api, entrees = _contexte(args)
+    return executer(args, api, entrees, "/v3/generation/text-to-model", corps, "modele", meta, _conversion(args))
 
 
 def cmd_image(args):
-    chemin = args.chemin
-    if not os.path.isfile(chemin):
-        raise ErreurTripo(USAGE, f"Image introuvable : {chemin}")
-    if not chemin.lower().endswith(EXTENSIONS_IMAGE):
-        raise ErreurTripo(USAGE, "L'image doit être en PNG ou JPEG.")
-    taille = os.path.getsize(chemin)
-    if taille > TAILLE_MAX_IMAGE:
-        raise ErreurTripo(USAGE, "L'image dépasse 20 Mo, la limite de Tripo.")
+    _verifier_sortie(args, ["." + args.format])
+    corps = _parametres_generation(args, depuis_image=True)
+    if args.autofix:
+        corps["enable_image_autofix"] = True
+    api, entrees = _contexte(args)
+    corps = {"input": entrees.resoudre(args.chemin, "image"), **corps}
+    return executer(args, api, entrees, "/v3/generation/image-to-model", corps, "modele",
+                    {"type": "image_to_model"}, _conversion(args))
+
+
+def cmd_multivue(args):
+    _verifier_sortie(args, ["." + args.format])
+    corps = _parametres_generation(args, depuis_image=True)
+    api, entrees = _contexte(args)
+    if args.depuis_tache:
+        if any((args.face, args.gauche, args.dos, args.droite)):
+            raise ErreurTripo(USAGE, "--depuis-tache remplace --face, --gauche, --dos et --droite.")
+        entrees.liste.append({"role": "vues", "task_id": args.depuis_tache})
+        vues = [{"task_id": args.depuis_tache}]
+    else:
+        if not args.face:
+            raise ErreurTripo(USAGE, "La vue de face (--face) est obligatoire, ou bien --depuis-tache.")
+        vues = [None if v is None else entrees.resoudre(v, nom)
+                for v, nom in ((args.face, "face"), (args.gauche, "gauche"), (args.dos, "dos"), (args.droite, "droite"))]
+    corps = {"inputs": vues, **corps}
+    return executer(args, api, entrees, "/v3/generation/multiview-to-model", corps, "modele",
+                    {"type": "multiview_to_model"}, _conversion(args))
+
+
+# ---------------------------------------------------------------------------
+# Images : texte → image, image → image, multivue, splat, profondeur
+# ---------------------------------------------------------------------------
+
+def _options(corps, args, correspondance):
+    for option, champ in correspondance:
+        valeur = getattr(args, option, None)
+        if valeur not in (None, False):
+            corps[champ] = valeur
+    return corps
+
+
+def cmd_image_texte(args):
+    _verifier_sortie(args, EXTENSIONS_IMAGE)
+    corps = {"prompt": args.prompt}
+    _options(corps, args, (("negatif", "negative_prompt"), ("modele", "model"), ("taille", "size"),
+                           ("ratio", "aspect_ratio"), ("format_image", "output_format")))
+    api, entrees = _contexte(args)
+    return executer(args, api, entrees, "/v3/generation/text-to-image", corps, "image",
+                    {"type": "text_to_image", "prompt": args.prompt})
+
+
+def cmd_image_image(args):
+    _verifier_sortie(args, EXTENSIONS_IMAGE)
+    api, entrees = _contexte(args)
+    references = [entrees.resoudre(v, f"reference_{i}") for i, v in enumerate(args.entrees, 1)]
+    corps = {"input": references[0]} if len(references) == 1 else {"inputs": references}
+    _options(corps, args, (("prompt", "prompt"), ("modele", "model"), ("gabarit", "template"),
+                           ("t_pose", "t_pose"), ("croquis", "sketch_to_render")))
+    if "prompt" not in corps and "template" not in corps:
+        raise ErreurTripo(USAGE, "image-image demande --prompt ou --gabarit.")
+    return executer(args, api, entrees, "/v3/generation/image-to-image", corps, "image",
+                    {"type": "image_to_image", "prompt": args.prompt})
+
+
+def cmd_image_multivue(args):
+    _verifier_sortie(args, EXTENSIONS_IMAGE)
+    api, entrees = _contexte(args)
+    corps = {"input": entrees.resoudre(args.entree, "image")}
+    return executer(args, api, entrees, "/v3/generation/image-to-multiview", corps, "multivue",
+                    {"type": "image_to_multiview"})
+
+
+def cmd_editer_multivue(args):
+    _verifier_sortie(args, EXTENSIONS_IMAGE)
+    prompts = []
+    for brut in args.vue:
+        vue, _, texte = brut.partition("=")
+        if vue not in ("front", "left", "back", "right") or not texte.strip():
+            raise ErreurTripo(USAGE, f"--vue attend front|left|back|right=texte, pas « {brut} ».")
+        prompts.append({"view": vue, "prompt": texte.strip()})
+    api, entrees = _contexte(args)
+    entrees.liste.append({"role": "multivue", "task_id": args.task_id})
+    corps = {"input": args.task_id, "prompts": prompts}
+    return executer(args, api, entrees, "/v3/generation/edit-multiview", corps, "multivue",
+                    {"type": "edit_multiview"})
+
+
+def cmd_splat(args):
     _verifier_sortie(args)
-    with open(chemin, "rb") as f:
-        empreinte = hashlib.sha256(f.read()).hexdigest()
-    corps = _parametres_communs(args)
-    source = {
-        "type": "image_to_model",
-        "image": {"chemin": chemin, "octets": taille, "sha256": empreinte},
-    }
+    api, entrees = _contexte(args)
+    corps = {"input": entrees.resoudre(args.entree, "image")}
+    _options(corps, args, (("graine", "model_seed"),))
+    return executer(args, api, entrees, "/v3/generation/image-to-splat", corps, "splat", {"type": "image_to_splat"})
+
+
+def cmd_profondeur(args):
+    _verifier_sortie(args, EXTENSIONS_IMAGE)
+    if args.resolution is not None and not 126 <= args.resolution <= 2016:
+        raise ErreurTripo(USAGE, "--resolution doit être entre 126 et 2016.")
+    api, entrees = _contexte(args)
+    corps = {"input": entrees.resoudre(args.entree, "image")}
+    _options(corps, args, (("type_profondeur", "kind"), ("resolution", "process_res")))
+    return executer(args, api, entrees, "/v3/generation/image-to-depth", corps, "profondeur",
+                    {"type": "image_to_depth"})
+
+
+# ---------------------------------------------------------------------------
+# Traitement de modèles
+# ---------------------------------------------------------------------------
+
+def _pieces(args):
+    return [p.strip() for p in args.pieces.split(",") if p.strip()] if getattr(args, "pieces", None) else None
+
+
+def _entree_modele(entrees, valeur, role="modele"):
+    return entrees.resoudre(valeur, role, extensions=EXTENSIONS_MODELE)
+
+
+def cmd_retexturer(args):
+    _verifier_sortie(args, [".glb"])
+    api, entrees = _contexte(args)
+    corps = {"input": _entree_modele(entrees, args.entree)}
+    _options(corps, args, (("modele", "model"), ("qualite_texture", "texture_quality"),
+                           ("alignement_texture", "texture_alignment")))
+    corps["texture"] = True
+    corps["pbr"] = not args.sans_pbr
+    if args.graine is not None:
+        corps["texture_seed"] = args.graine
+    if _pieces(args):
+        corps["part_names"] = _pieces(args)
+    if args.sans_cuisson:
+        corps["bake"] = False
+    guide = {}
+    if args.prompt_texture:
+        guide["text"] = args.prompt_texture
+    if args.image_texture:
+        guide["image"] = entrees.resoudre(args.image_texture, "image_texture")
+    if args.image_style:
+        guide["style_image"] = entrees.resoudre(args.image_style, "image_style")
+    if guide:
+        corps["texture_prompt"] = guide
+    return executer(args, api, entrees, "/v3/models/texture", corps, "modele",
+                    {"type": "texture_model", "prompt": args.prompt_texture})
+
+
+def cmd_convertir(args):
+    _verifier_sortie(args, ["." + args.format])
+    api, entrees = _contexte(args)
+    entrees.liste.append({"role": "modele", "task_id": args.task_id})
+    corps = {"input": args.task_id, "format": args.format.upper()}
+    if args.faces is not None and args.faces > 0:
+        corps["face_limit"] = args.faces
+    _options(corps, args, (("quad", "quad"), ("taille_texture", "texture_size"), ("format_texture", "texture_format"),
+                           ("echelle", "scale_factor"), ("pivot_bas", "pivot_to_center_bottom"),
+                           ("aplatir_base", "flatten_bottom"), ("orientation_export", "export_orientation"),
+                           ("preset_fbx", "fbx_preset"), ("sur_place", "animate_in_place")))
+    if args.sans_cuisson:
+        corps["bake"] = False
+    if args.sans_animation:
+        corps["with_animation"] = False
+    return executer(args, api, entrees, "/v3/models/convert", corps, "modele", {"type": "convert_model"})
+
+
+def cmd_importer(args):
+    _verifier_sortie(args, [".glb"])
+    api, entrees = _contexte(args)
+    corps = {"input": _entree_modele(entrees, args.entree)}
+    return executer(args, api, entrees, "/v3/models/import", corps, "modele", {"type": "import_model"},
+                    principale_requise=False)
+
+
+def cmd_decimer(args):
+    _verifier_sortie(args, [".glb", ".fbx"])
+    if args.uv_intelligentes and args.modele != "v3.0":
+        raise ErreurTripo(USAGE, "--uv-intelligentes exige --modele v3.0.")
+    if args.faces is not None and args.faces <= 0:
+        raise ErreurTripo(USAGE, "--faces doit être un entier positif.")
+    api, entrees = _contexte(args)
+    corps = {"input": _entree_modele(entrees, args.entree)}
+    _options(corps, args, (("modele", "model"), ("faces", "face_limit"), ("quad", "quad"),
+                           ("uv_intelligentes", "smart_uv")))
+    if args.sans_cuisson:
+        corps["bake"] = False
+    if _pieces(args):
+        corps["part_names"] = _pieces(args)
+    return executer(args, api, entrees, "/v3/mesh/decimate", corps, "modele", {"type": "highpoly_to_lowpoly"})
+
+
+def cmd_uv(args):
+    _verifier_sortie(args, [".glb"])
+    api, entrees = _contexte(args)
+    corps = {"input": _entree_modele(entrees, args.entree)}
+    _options(corps, args, (("modele", "model"),))
+    return executer(args, api, entrees, "/v3/mesh/uv", corps, "modele", {"type": "mesh_uv"})
+
+
+def cmd_segmenter(args):
+    _verifier_sortie(args, [".glb"])
+    api, entrees = _contexte(args)
+    corps = {"input": _entree_modele(entrees, args.entree)}
+    _options(corps, args, (("modele", "model"), ("granularite", "segmentation_granularity"),
+                           ("par_connexite", "split_by_connectivity")))
+    if args.image_ref:
+        corps["ref_image"] = entrees.resoudre(args.image_ref, "image_ref")
+    return executer(args, api, entrees, "/v3/mesh/segment", corps, "modele", {"type": "mesh_segmentation"})
+
+
+def cmd_segmenter_intelligent(args):
+    _verifier_sortie(args, [".glb"])
+    seg_type = args.type_entree
+    if seg_type is None:
+        seg_type = "model" if args.entree.lower().split("?")[0].endswith(".glb") else "image"
+    api, entrees = _contexte(args)
+    extensions = (".glb",) if seg_type == "model" else EXTENSIONS_IMAGE
+    corps = {"seg_type": seg_type,
+             "input": entrees.resoudre(args.entree, "source", extensions=extensions, references=False)}
+    _options(corps, args, (("granularite", "granularity"), ("indice", "hint")))
+    if seg_type == "model":
+        matrice = args.transformation or [1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1]
+        if len(matrice) != 16:
+            raise ErreurTripo(USAGE, "--transformation attend 16 nombres (matrice 4×4 en colonnes).")
+        corps["transform"] = matrice
+    return executer(args, api, entrees, "/v3/mesh/smartsegment", corps, "modele", {"type": "smart_segmentation"})
+
+
+def cmd_completer(args):
+    _verifier_sortie(args, [".glb"])
+    api, entrees = _contexte(args)
+    entrees.liste.append({"role": "segmentation", "task_id": args.task_id})
+    corps = {"input": args.task_id}
+    _options(corps, args, (("modele", "model"), ("mode", "completion_mode")))
+    if _pieces(args):
+        corps["part_names"] = _pieces(args)
+    return executer(args, api, entrees, "/v3/mesh/complete", corps, "modele", {"type": "mesh_completion"})
+
+
+# ---------------------------------------------------------------------------
+# Animation
+# ---------------------------------------------------------------------------
+
+def cmd_riggable(args):
+    api, entrees = _contexte(args)
+    corps = {"input": _entree_modele(entrees, args.entree)}
     if args.a_blanc:
-        corps = {"input": "<file_token après envoi de l'image>", **corps}
-        return _a_blanc("/v3/generation/image-to-model", corps)
-    api = Api(base_api(args), lire_cle())
-    envoi = api.appel("POST", "/v3/files", multipart=_multipart("file", chemin))
-    jeton = envoi.get("file_token") if isinstance(envoi, dict) else None
-    if not jeton:
-        raise ErreurTripo(ERREUR, "Envoi de l'image : réponse sans file_token.")
-    corps = {"input": jeton, **corps}
-    return _generer(args, "/v3/generation/image-to-model", corps, source, api=api)
-
-
-def _a_blanc(chemin, corps):
-    dire(f"À blanc : POST {chemin}")
-    dire(json.dumps(corps, ensure_ascii=False, indent=2))
-    dire("Aucune requête envoyée, aucun crédit consommé.")
-    return OK
-
-
-def _generer(args, chemin, corps, source, api=None):
-    if args.a_blanc:
-        return _a_blanc(chemin, corps)
-    api = api or Api(base_api(args), lire_cle())
-    parametres = {k: v for k, v in corps.items() if k not in ("prompt", "negative_prompt", "input")}
-    task_id = creer_tache(api, chemin, corps)
-    dire(f"Tâche créée : {task_id}")
-    fiche = {
-        "outil": "plugin tripo (quiche-lorraine-games), scripts/tripo.py",
-        "date": maintenant(),
-        "api": api.base,
-        "task_id": task_id,
-        "modele_tripo": corps.get("model"),
-        **source,
-        "parametres": parametres,
-        "format": args.format,
-        "fichier": os.path.basename(args.sortie),
-        "etat": "en_cours",
-    }
-    if args.sans_attendre:
-        ecrire_fiche(args.sortie, fiche)
-        dire(f"Sans attente. Récupère le modèle avec : tripo.py telecharger {task_id} --sortie {args.sortie}")
-        return OK
+        return _a_blanc("/v3/animations/rig-check", corps)
+    task_id = creer_tache(api, "/v3/animations/rig-check", corps)
     tache = attendre(api, task_id, args.delai, args.intervalle)
     verifier_succes(tache)
-    return _finaliser(args, api, tache, fiche)
-
-
-def _finaliser(args, api, tache, fiche, convertir=True):
-    task_id = tache["task_id"] if tache.get("task_id") else fiche["task_id"]
-    tache_fichier = tache
-    if args.format != "glb" and convertir:
-        conversion_id = creer_tache(api, "/v3/models/convert", {"input": task_id, "format": args.format.upper()})
-        dire(f"Conversion en {args.format.upper()} : tâche {conversion_id}")
-        tache_fichier = attendre(api, conversion_id, args.delai, args.intervalle)
-        verifier_succes(tache_fichier)
-        fiche["conversion"] = {"task_id": conversion_id, "format": args.format,
-                               "credits": tache_fichier.get("credits_consumed")}
-    hote_fichier, octets = telecharger_fichier(url_modele(tache_fichier), args.sortie, task_id)
-    with open(args.sortie, "rb") as f:
-        est_glb = f.read(4) == b"glTF"
-    if est_glb != (args.format == "glb"):
-        os.remove(args.sortie)
-        raise ErreurTripo(USAGE, (
-            f"Le fichier de la tâche {task_id} n'est pas au format {args.format}. Pour un FBX ou un OBJ, "
-            "passe à `telecharger` le task_id de la tâche de conversion (champ conversion du .tripo.json)."))
-    fiche.update({
-        "etat": "telecharge",
-        "date_telechargement": maintenant(),
-        "hote_fichier": hote_fichier,
-        "credits": tache.get("credits_consumed"),
-        "fichier": os.path.basename(args.sortie),
-        "format": args.format,
-    })
-    if not fiche.get("modele_tripo"):
-        fiche["modele_tripo"] = (tache.get("input") or {}).get("model") or tache.get("model_version")
-    resume = f"{_taille_lisible(octets)}"
-    if args.format == "glb":
-        controle = inspecter_glb(args.sortie)
-        fiche["controle"] = controle
-        resume = resume_controle(controle)
-        limite = (fiche.get("parametres") or {}).get("face_limit")
-        if limite and controle["triangles"] > limite * 1.05:
-            signaler(f"Attention : {controle['triangles']} triangles pour une limite demandée de {limite}.")
-    chemin = ecrire_fiche(args.sortie, fiche)
-    dire(f"Modèle écrit : {args.sortie} ({resume})")
-    dire(f"Fiche de traçabilité : {chemin}")
+    sortie = tache.get("output") or {}
+    riggable = sortie.get("riggable")
+    squelette = sortie.get("rig_type") or sortie.get("topology") or "?"
+    if riggable:
+        dire(f"Riggable : oui (squelette détecté : {squelette}). Tâche {task_id}.")
+    else:
+        dire(f"Riggable : non. Tâche {task_id}.")
     return OK
 
 
-def cmd_statut(args):
-    api = Api(base_api(args), lire_cle())
-    tache = lire_tache(api, args.task_id)
+def cmd_rigger(args):
+    _verifier_sortie(args, ["." + args.format])
+    if args.spec in ("unity", "unreal", "vrm") and args.modele in (None, "v1.0-20240301"):
+        raise ErreurTripo(USAGE, "Les specs unity, unreal et vrm exigent --modele v2.5-20260210 ou v3.0-20260909.")
+    api, entrees = _contexte(args)
+    corps = {"input": _entree_modele(entrees, args.entree)}
+    _options(corps, args, (("modele", "model"), ("type_squelette", "rig_type"), ("spec", "spec")))
+    corps["out_format"] = args.format
+    return executer(args, api, entrees, "/v3/animations/rig", corps, "modele", {"type": "animate_rig"})
+
+
+def cmd_animer(args):
+    _verifier_sortie(args, ["." + args.format])
+    if len(args.animation) > 5:
+        raise ErreurTripo(USAGE, "5 animations au maximum par tâche.")
+    if args.sans_cuisson and args.format != "glb":
+        raise ErreurTripo(USAGE, "--sans-cuisson ne s'applique qu'au GLB.")
+    api, entrees = _contexte(args)
+    entrees.liste.append({"role": "modele_rigge", "task_id": args.task_id})
+    animations = [a if a.startswith("preset:") else "preset:" + a for a in args.animation]
+    corps = {"input": args.task_id}
+    if len(animations) == 1:
+        corps["animation"] = animations[0]
+    else:
+        corps["animations"] = animations
+    corps["out_format"] = args.format
+    if args.avec_geometrie is not None:
+        corps["export_with_geometry"] = args.avec_geometrie
+    _options(corps, args, (("sur_place", "animate_in_place"),))
+    if args.sans_cuisson:
+        corps["bake_animation"] = False
+    return executer(args, api, entrees, "/v3/animations/retarget", corps, "modele",
+                    {"type": "animate_retarget", "animations": animations},
+                    principale_requise=len(animations) == 1)
+
+
+# ---------------------------------------------------------------------------
+# Tâches
+# ---------------------------------------------------------------------------
+
+def _ligne_tache(task_id, tache):
     statut = str(tache.get("status") or "unknown").lower()
-    ligne = f"Tâche {args.task_id} : {statut}"
+    ligne = f"Tâche {task_id} : {statut}"
     if tache.get("progress") is not None:
         ligne += f" ({tache['progress']} %)"
     if tache.get("type"):
         ligne += f", type {tache['type']}"
-    dire(ligne)
-    if statut in ("failed", "cancelled", "expired", "banned"):
+    if statut == "success":
+        noms = [nom for _, nom, _ in collecter_urls(tache.get("output"))]
+        if noms:
+            ligne += f", sorties : {', '.join(noms)}"
+    return ligne
+
+
+def cmd_statut(args):
+    tache = lire_tache(_api(args), args.task_id)
+    dire(_ligne_tache(args.task_id, tache))
+    if str(tache.get("status") or "").lower() in ("failed", "cancelled", "expired", "banned"):
         verifier_succes(tache)
+    return OK
+
+
+def cmd_taches(args):
+    data = _api(args).appel("POST", "/v3/tasks/list", json_corps={"task_ids": args.task_ids})
+    taches = (data.get("tasks") if isinstance(data, dict) else None) or {}
+    for task_id in args.task_ids:
+        if task_id in taches:
+            dire(_ligne_tache(task_id, taches[task_id]))
+    for task_id in (data.get("missed") if isinstance(data, dict) else None) or []:
+        dire(f"Tâche {task_id} : introuvable (identifiant faux, autre clé ou tâche expirée).")
     return OK
 
 
 def cmd_telecharger(args):
     _verifier_sortie(args)
-    api = Api(base_api(args), lire_cle())
+    api = _api(args)
     tache = lire_tache(api, args.task_id)
     if str(tache.get("status") or "").lower() not in STATUTS_FINAUX:
         tache = attendre(api, args.task_id, args.delai, args.intervalle)
@@ -767,7 +1377,26 @@ def cmd_telecharger(args):
         }
         if entree.get("prompt"):
             fiche["prompt"] = entree["prompt"]
-    return _finaliser(args, api, tache, fiche, convertir=False)
+    nature = fiche.get("nature") or deviner_nature(tache)
+    return finaliser(args, api, tache, fiche, nature)
+
+
+def cmd_brut(args):
+    if not args.chemin.startswith("/v3/"):
+        raise ErreurTripo(USAGE, "Le chemin doit commencer par /v3/ (ex. /v3/mesh/smartsegment).")
+    _verifier_sortie(args)
+    texte = args.corps
+    if texte.startswith("@"):
+        with open(texte[1:], encoding="utf-8") as f:
+            texte = f.read()
+    try:
+        corps = json.loads(texte)
+    except json.JSONDecodeError as exc:
+        raise ErreurTripo(USAGE, f"--corps n'est pas du JSON valide : {exc}.") from None
+    if not isinstance(corps, dict):
+        raise ErreurTripo(USAGE, "--corps doit être un objet JSON.")
+    api, entrees = _contexte(args)
+    return executer(args, api, entrees, args.chemin, corps, args.nature, {"type": "brut"})
 
 
 def cmd_inspecter(args):
@@ -788,62 +1417,227 @@ class _Analyseur(argparse.ArgumentParser):
         sys.exit(USAGE)
 
 
+def _commun(sp, sortie=True, attente=True):
+    if sortie:
+        sp.add_argument("--sortie", required=True, help="fichier principal à écrire ; la fiche .tripo.json va à côté")
+        sp.add_argument("--ecraser", action="store_true", help="autorise à remplacer --sortie")
+    if attente:
+        sp.add_argument("--delai", type=float, default=600, help="attente maximale en secondes (défaut : 600)")
+        sp.add_argument("--intervalle", type=float, default=3, help="premier intervalle de suivi en secondes")
+
+
+def _creation(sp):
+    _commun(sp)
+    sp.add_argument("--sans-attendre", action="store_true", help="crée la tâche et rend la main")
+    sp.add_argument("--a-blanc", action="store_true", help="affiche la requête sans l'envoyer")
+    sp.add_argument("--param", action="append", metavar="CLE=VALEUR",
+                    help="champ supplémentaire de l'API, envoyé tel quel (valeur JSON ou texte ; répétable)")
+
+
+def _generation(sp, depuis_image):
+    _creation(sp)
+    sp.add_argument("--format", choices=FORMATS, default="glb",
+                    help="glb par défaut ; fbx et obj passent par une conversion payante (sauf fbx avec --quad)")
+    sp.add_argument("--modele", default=MODELE_DEFAUT, help=f"version du modèle Tripo (défaut : {MODELE_DEFAUT})")
+    sp.add_argument("--faces", type=int, help="nombre maximal de faces (face_limit)")
+    sp.add_argument("--sans-texture", action="store_true", help="géométrie seule (moins chère)")
+    sp.add_argument("--sans-pbr", action="store_true", help="texture sans cartes PBR")
+    sp.add_argument("--qualite-texture", choices=("standard", "detailed", "fast", "extreme"),
+                    help="detailed et extreme coûtent plus ; fast et extreme dépendent de --version-texture")
+    sp.add_argument("--version-texture", help="modèle de texture (texture_version), ex. v3.5-20260815")
+    sp.add_argument("--qualite-geometrie", choices=("standard", "detailed"), help="detailed : supplément")
+    sp.add_argument("--taille-auto", action="store_true", help="mise à l'échelle réelle en mètres (auto_size)")
+    sp.add_argument("--low-poly", action="store_true", help="smart_low_poly (supplément)")
+    sp.add_argument("--quad", action="store_true", help="maillage en quads, sortie FBX (supplément)")
+    sp.add_argument("--parties", action="store_true", help="génère des pièces séparées (generate_parts, supplément)")
+    sp.add_argument("--graine", type=int, help="graine, pour refaire un résultat proche")
+    if depuis_image:
+        sp.add_argument("--orientation", choices=("default", "align_image"), help="orientation du modèle")
+        sp.add_argument("--alignement-texture", choices=("original_image", "geometry"),
+                        help="priorité de la texture : fidélité à l'image ou à la géométrie")
+
+
 def analyseur():
-    p = _Analyseur(prog="tripo.py", description="Génère des modèles 3D avec l'API Tripo (apiv3).")
+    p = _Analyseur(prog="tripo.py", description="Pilote l'API Tripo 3D (apiv3).")
     p.add_argument("--api", help=f"URL de base de l'API (défaut : TRIPO_API_BASE ou {API_BASE_DEFAUT})")
     sous = p.add_subparsers(dest="commande", required=True, parser_class=_Analyseur)
 
-    v = sous.add_parser("verifier", help="clé, accès réseau à chaque hôte, solde de crédits")
+    def commande(nom, fonction, aide):
+        sp = sous.add_parser(nom, help=aide, description=aide)
+        sp.set_defaults(fonction=fonction)
+        return sp
+
+    # Compte
+    v = commande("verifier", cmd_verifier, "clé, accès réseau à chaque hôte, solde de crédits")
     v.add_argument("--hote-fichiers", action="append",
-                   help="hôte des fichiers à tester (répétable ; défaut : TRIPO_HOTES_FICHIERS ou tripo-data.rg1.data.tripo3d.com)")
-    v.set_defaults(fonction=cmd_verifier)
+                   help="hôte des fichiers à tester (répétable ; défaut : TRIPO_HOTES_FICHIERS ou "
+                        "tripo-data.rg1.data.tripo3d.com)")
+    c = commande("consommation", cmd_consommation, "historique des tâches et des crédits consommés")
+    c.add_argument("--limite", type=int, default=20)
+    c.add_argument("--decalage", type=int, default=0)
+    e = commande("envoyer", cmd_envoyer, "envoie un fichier local et affiche son file_token")
+    e.add_argument("fichier")
 
-    def options_generation(sp):
-        sp.add_argument("--sortie", required=True, help="fichier à écrire (ex. assets/props/caisse.glb)")
-        sp.add_argument("--format", choices=FORMATS, default="glb",
-                        help="glb par défaut ; fbx et obj passent par une tâche de conversion payante")
-        sp.add_argument("--modele", default=MODELE_DEFAUT, help=f"version du modèle Tripo (défaut : {MODELE_DEFAUT})")
-        sp.add_argument("--faces", type=int, help="nombre maximal de faces (face_limit)")
-        sp.add_argument("--sans-texture", action="store_true", help="géométrie seule (moins chère)")
-        sp.add_argument("--sans-pbr", action="store_true", help="texture sans cartes PBR")
-        sp.add_argument("--qualite-texture", choices=("standard", "detailed"),
-                        help="qualité de texture ; detailed coûte plus cher")
-        sp.add_argument("--taille-auto", action="store_true", help="mise à l'échelle réelle en mètres (auto_size)")
-        sp.add_argument("--low-poly", action="store_true", help="smart_low_poly (surcoût)")
-        sp.add_argument("--graine", type=int, help="graine pour refaire un résultat proche")
-        sp.add_argument("--delai", type=float, default=600, help="attente maximale en secondes (défaut : 600)")
-        sp.add_argument("--intervalle", type=float, default=3, help="premier intervalle de suivi en secondes")
-        sp.add_argument("--sans-attendre", action="store_true", help="crée la tâche et rend la main")
-        sp.add_argument("--a-blanc", action="store_true", help="affiche la requête sans l'envoyer")
-        sp.add_argument("--ecraser", action="store_true", help="autorise à remplacer --sortie")
-
-    t = sous.add_parser("texte", help="génère un modèle depuis un prompt")
+    # Modèles
+    t = commande("texte", cmd_texte, "modèle 3D depuis un prompt")
     t.add_argument("prompt")
     t.add_argument("--negatif", help="ce qu'il faut éviter (negative_prompt)")
-    options_generation(t)
-    t.set_defaults(fonction=cmd_texte)
-
-    i = sous.add_parser("image", help="génère un modèle depuis une image locale (PNG ou JPEG)")
+    _generation(t, depuis_image=False)
+    i = commande("image", cmd_image, "modèle 3D depuis une image (fichier, URL, file_token ou task_id)")
     i.add_argument("chemin")
-    options_generation(i)
-    i.set_defaults(fonction=cmd_image)
+    i.add_argument("--autofix", action="store_true", help="correction automatique de l'image (enable_image_autofix)")
+    _generation(i, depuis_image=True)
+    m = commande("multivue", cmd_multivue, "modèle 3D depuis 1 à 4 vues (face, gauche, dos, droite)")
+    m.add_argument("--face")
+    m.add_argument("--gauche")
+    m.add_argument("--dos")
+    m.add_argument("--droite")
+    m.add_argument("--depuis-tache", help="task_id d'une tâche image-multivue ou editer-multivue")
+    _generation(m, depuis_image=True)
 
-    s = sous.add_parser("statut", help="affiche le statut d'une tâche")
-    s.add_argument("task_id")
-    s.set_defaults(fonction=cmd_statut)
+    # Images
+    it = commande("image-texte", cmd_image_texte, "image depuis un prompt")
+    it.add_argument("prompt")
+    it.add_argument("--negatif")
+    it.add_argument("--modele", help="modèle d'image, ex. seedream_v4 (défaut de Tripo) ou seedream_v5")
+    it.add_argument("--taille", help="taille, ex. 1024x1024")
+    it.add_argument("--ratio", help="rapport largeur/hauteur, ex. 1:1")
+    it.add_argument("--format-image", help="format de sortie, ex. png")
+    _creation(it)
+    ii = commande("image-image", cmd_image_image, "transforme une ou plusieurs images de référence")
+    ii.add_argument("entrees", nargs="+")
+    ii.add_argument("--prompt")
+    ii.add_argument("--modele")
+    ii.add_argument("--gabarit", help="gabarit d'image Tripo, ex. t-pose")
+    ii.add_argument("--t-pose", action="store_true", help="met le sujet en T-pose")
+    ii.add_argument("--croquis", action="store_true", help="rend un croquis (sketch_to_render)")
+    _creation(ii)
+    im = commande("image-multivue", cmd_image_multivue, "vues face, gauche, dos et droite depuis une image")
+    im.add_argument("entree")
+    _creation(im)
+    em = commande("editer-multivue", cmd_editer_multivue, "modifie des vues d'une tâche multivue")
+    em.add_argument("task_id")
+    em.add_argument("--vue", action="append", required=True, metavar="VUE=TEXTE",
+                    help="front, left, back ou right, suivi de la consigne (répétable)")
+    _creation(em)
+    s = commande("splat", cmd_splat, "splat gaussien depuis une image")
+    s.add_argument("entree")
+    s.add_argument("--graine", type=int)
+    _creation(s)
+    pr = commande("profondeur", cmd_profondeur, "carte de profondeur depuis une image")
+    pr.add_argument("entree")
+    pr.add_argument("--type", dest="type_profondeur", choices=("gray", "color"))
+    pr.add_argument("--resolution", type=int, help="résolution de calcul, de 126 à 2016")
+    _creation(pr)
 
-    d = sous.add_parser("telecharger", help="attend si besoin, puis télécharge le modèle d'une tâche")
-    d.add_argument("task_id")
-    d.add_argument("--sortie", required=True)
-    d.add_argument("--format", choices=FORMATS, default="glb")
-    d.add_argument("--delai", type=float, default=600)
-    d.add_argument("--intervalle", type=float, default=3)
-    d.add_argument("--ecraser", action="store_true")
-    d.set_defaults(fonction=cmd_telecharger)
+    # Traitement
+    r = commande("retexturer", cmd_retexturer, "nouvelle texture sur un modèle existant")
+    r.add_argument("entree", help="task_id d'un modèle, fichier GLB/FBX/OBJ/STL, URL ou file_token")
+    r.add_argument("--prompt-texture", help="consigne de texture en texte")
+    r.add_argument("--image-texture", help="image de référence pour la texture")
+    r.add_argument("--image-style", help="image de style")
+    r.add_argument("--modele", help="modèle de texture : v2.5-20250123, v3.0-20250812 ou v3.5-20260815")
+    r.add_argument("--qualite-texture", choices=("standard", "detailed", "fast", "extreme"))
+    r.add_argument("--alignement-texture", choices=("original_image", "geometry"))
+    r.add_argument("--sans-pbr", action="store_true")
+    r.add_argument("--pieces", help="noms de pièces à retexturer, séparés par des virgules")
+    r.add_argument("--sans-cuisson", action="store_true", help="bake=false")
+    r.add_argument("--graine", type=int)
+    _creation(r)
+    cv = commande("convertir", cmd_convertir, "convertit le modèle d'une tâche dans un autre format")
+    cv.add_argument("task_id")
+    cv.add_argument("--format", required=True, choices=FORMATS_CONVERSION)
+    cv.add_argument("--faces", type=int)
+    cv.add_argument("--quad", action="store_true")
+    cv.add_argument("--taille-texture", type=int, help="ex. 2048 (Tripo : 4096 par défaut)")
+    cv.add_argument("--format-texture", help="ex. JPEG ou PNG")
+    cv.add_argument("--echelle", type=float, help="facteur d'échelle (scale_factor)")
+    cv.add_argument("--pivot-bas", action="store_true", help="pivot au centre de la base")
+    cv.add_argument("--aplatir-base", action="store_true", help="aplatit le dessous (flatten_bottom)")
+    cv.add_argument("--orientation-export", help="ex. +x (export_orientation)")
+    cv.add_argument("--preset-fbx", help="ex. blender (fbx_preset)")
+    cv.add_argument("--sur-place", action="store_true", help="animation sur place (animate_in_place)")
+    cv.add_argument("--sans-cuisson", action="store_true", help="bake=false")
+    cv.add_argument("--sans-animation", action="store_true", help="with_animation=false")
+    _creation(cv)
+    imp = commande("importer", cmd_importer, "importe un modèle externe pour le retravailler avec Tripo")
+    imp.add_argument("entree", help="fichier GLB/GLTF/FBX/OBJ/STL (150 Mo max), URL ou file_token")
+    _creation(imp)
+    d = commande("decimer", cmd_decimer, "réduit le nombre de faces d'un modèle (retopologie)")
+    d.add_argument("entree")
+    d.add_argument("--faces", type=int)
+    d.add_argument("--modele", choices=("v1.0", "v2.0", "v3.0"))
+    d.add_argument("--quad", action="store_true")
+    d.add_argument("--uv-intelligentes", action="store_true", help="smart_uv (exige --modele v3.0)")
+    d.add_argument("--pieces")
+    d.add_argument("--sans-cuisson", action="store_true", help="bake=false")
+    _creation(d)
+    u = commande("uv", cmd_uv, "dépliage UV automatique (Smart UV)")
+    u.add_argument("entree")
+    u.add_argument("--modele")
+    _creation(u)
+    sg = commande("segmenter", cmd_segmenter, "découpe un modèle en pièces")
+    sg.add_argument("entree")
+    sg.add_argument("--modele", help="v1.0-20250506 (défaut de Tripo) ou v2.0-20260430")
+    sg.add_argument("--granularite", help="finesse du découpage (modèle v2.0)")
+    sg.add_argument("--image-ref", help="image de référence (modèle v2.0)")
+    sg.add_argument("--par-connexite", action="store_true", help="split_by_connectivity (modèle v2.0)")
+    _creation(sg)
+    si = commande("segmenter-intelligent", cmd_segmenter_intelligent,
+                  "segmentation intelligente depuis une image ou un GLB (smartsegment)")
+    si.add_argument("entree", help="fichier image ou GLB, URL ou file_token (pas de task_id)")
+    si.add_argument("--type", dest="type_entree", choices=("image", "model"), help="déduit de l'extension sinon")
+    si.add_argument("--granularite", choices=("coarse", "medium", "fine"))
+    si.add_argument("--indice", help="texte qui aide à repérer les pièces (hint)")
+    si.add_argument("--transformation", type=float, nargs=16, help="matrice 4×4 en colonnes (GLB ; identité sinon)")
+    _creation(si)
+    cp = commande("completer", cmd_completer, "complète les pièces d'une segmentation")
+    cp.add_argument("task_id", help="task_id d'une tâche segmenter")
+    cp.add_argument("--pieces")
+    cp.add_argument("--mode", choices=("ai_completion", "quick_cap"))
+    cp.add_argument("--modele")
+    _creation(cp)
 
-    n = sous.add_parser("inspecter", help="poids, triangles, dimensions et textures d'un GLB local")
+    # Animation
+    rc = commande("riggable", cmd_riggable, "vérifie qu'un modèle peut être riggé (gratuit)")
+    rc.add_argument("entree")
+    rc.add_argument("--a-blanc", action="store_true")
+    _commun(rc, sortie=False)
+    rg = commande("rigger", cmd_rigger, "ajoute un squelette à un modèle")
+    rg.add_argument("entree")
+    rg.add_argument("--format", choices=("glb", "fbx"), default="glb")
+    rg.add_argument("--modele", help="v1.0-20240301 (défaut de Tripo), v2.5-20260210 ou v3.0-20260909")
+    rg.add_argument("--type", dest="type_squelette",
+                    choices=("biped", "quadruped", "hexapod", "octopod", "avian", "serpentine", "aquatic", "others"))
+    rg.add_argument("--spec", choices=("tripo", "mixamo", "actorcore", "unity", "unreal", "vrm"))
+    _creation(rg)
+    an = commande("animer", cmd_animer, "applique des animations prédéfinies à un modèle riggé")
+    an.add_argument("task_id", help="task_id d'une tâche rigger")
+    an.add_argument("--animation", action="append", required=True,
+                    help="préréglage, ex. walk, run, idle ou preset:walk (1 à 5)")
+    an.add_argument("--format", choices=("glb", "fbx"), default="glb")
+    geo = an.add_mutually_exclusive_group()
+    geo.add_argument("--avec-geometrie", dest="avec_geometrie", action="store_true", default=None)
+    geo.add_argument("--sans-geometrie", dest="avec_geometrie", action="store_false")
+    an.add_argument("--sur-place", action="store_true", help="animation sur place (animate_in_place)")
+    an.add_argument("--sans-cuisson", action="store_true", help="bake_animation=false (GLB)")
+    _creation(an)
+
+    # Tâches
+    st = commande("statut", cmd_statut, "affiche le statut d'une tâche")
+    st.add_argument("task_id")
+    ts = commande("taches", cmd_taches, "statut de plusieurs tâches en une requête")
+    ts.add_argument("task_ids", nargs="+")
+    tl = commande("telecharger", cmd_telecharger, "attend si besoin, puis télécharge les fichiers d'une tâche")
+    tl.add_argument("task_id")
+    _commun(tl)
+    b = commande("brut", cmd_brut, "crée une tâche sur n'importe quel endpoint /v3/ (corps JSON tel quel)")
+    b.add_argument("chemin", help="ex. /v3/mesh/smartsegment")
+    b.add_argument("--corps", required=True, help="objet JSON, ou @fichier.json")
+    b.add_argument("--nature", choices=("modele", "image", "multivue", "profondeur", "splat"), default="modele")
+    _creation(b)
+    n = commande("inspecter", cmd_inspecter, "poids, triangles, dimensions et textures d'un GLB local")
     n.add_argument("chemin")
-    n.set_defaults(fonction=cmd_inspecter)
     return p
 
 

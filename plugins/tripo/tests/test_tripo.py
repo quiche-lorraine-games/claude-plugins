@@ -6,7 +6,6 @@ Lancer depuis la racine du repo :
 
 import json
 import os
-import socket
 import struct
 import subprocess
 import sys
@@ -42,6 +41,32 @@ def glb_triangle(echelle=2.0):
             + struct.pack("<II", len(positions), 0x004E4942) + positions)
 
 
+def sortie_selon_operation(base, task_id, operation, corps):
+    """Sortie d'une tâche réussie, selon l'endpoint qui l'a créée (formes tirées du SDK officiel)."""
+    f = f"{base}/fichiers/{task_id}"
+    if operation in ("/v3/generation/text-to-image", "/v3/generation/image-to-image"):
+        return {"generated_image_url": f"{f}.png?s=1"}
+    if operation in ("/v3/generation/image-to-multiview", "/v3/generation/edit-multiview"):
+        return {"generate_multiview_image": {v + "_view_url": f"{f}_{v}.png?s=1"
+                                             for v in ("front", "left", "back", "right")}}
+    if operation == "/v3/generation/image-to-depth":
+        return {"depth_image_url": f"{f}_depth.png?s=1"}
+    if operation == "/v3/generation/image-to-splat":
+        return {"model_url": f"{f}.ply?s=1"}
+    if operation == "/v3/animations/rig-check":
+        return {"riggable": True, "rig_type": "biped"}
+    if operation == "/v3/animations/retarget":
+        return {"model_urls": [f"{f}_1.glb?s=1", f"{f}_2.glb?s=1"]}
+    if operation == "/v3/models/import":
+        return {}
+    if operation == "/v3/models/convert" or corps.get("quad"):
+        return {"model_url": f"{f}.fbx?s=1"}
+    sortie = {"model_url": f"{f}.glb?auth_key=xyz", "rendered_image_url": f"{f}_rendu.webp?s=1"}
+    if operation == "/v3/mesh/uv":
+        sortie["uv_render_url"] = f"{f}_uv.png?s=1"
+    return sortie
+
+
 class FauxTripo(BaseHTTPRequestHandler):
     """Rejoue le scénario de la classe de test : self.server.scenario."""
 
@@ -68,6 +93,22 @@ class FauxTripo(BaseHTTPRequestHandler):
             "corps": corps,
         })
 
+    def _tache(self, task_id, avancer=True):
+        sc = self.server.scenario
+        etats = sc["etats"].setdefault(task_id, list(sc.get("suite", ["queued", "running", "success"])))
+        statut = (etats.pop(0) if len(etats) > 1 else etats[0]) if avancer else etats[-1]
+        operation = self.server.operations.get(task_id, "/v3/generation/text-to-model")
+        data = {"task_id": task_id, "type": "text_to_model", "status": statut,
+                "progress": 100 if statut == "success" else 40,
+                "input": {"prompt": "caisse en bois", "model": "v3.1-20260211"}}
+        if statut == "success":
+            data["output"] = sortie_selon_operation(self.server.base, task_id, operation,
+                                                    self.server.corps.get(task_id, {}))
+            data["credits_consumed"] = 20
+        if statut == "failed":
+            data.update({"error_code": 5000, "error_msg": "generation failed"})
+        return data
+
     def do_GET(self):
         self._noter()
         sc = self.server.scenario
@@ -75,37 +116,44 @@ class FauxTripo(BaseHTTPRequestHandler):
             if sc.get("cle_refusee"):
                 return self._refus_cle()
             return self._json(200, {"code": 0, "data": {"balance": 1234.0, "frozen": 20.0}})
+        if self.path.startswith("/v3/account/usage"):
+            return self._json(200, {"code": 0, "data": {"items": [
+                {"task_id": "a", "type": "text_to_model", "status": "success",
+                 "created_at": "2026-10-22T10:00:00Z", "credits_consumed": 20},
+                {"task_id": "b", "type": "texture_model", "status": "failed",
+                 "created_at": "2026-10-22T10:05:00Z", "credits_consumed": 0}]}})
         if self.path.startswith("/v3/tasks/"):
             if sc.get("pannes", 0) > 0:
                 sc["pannes"] -= 1
                 return self._json(500, {"code": 500, "status": "error", "message": "internal"})
-            task_id = self.path.rsplit("/", 1)[1]
-            etats = sc["etats"].setdefault(task_id, list(sc.get("suite", ["queued", "running", "success"])))
-            statut = etats.pop(0) if len(etats) > 1 else etats[0]
-            data = {"task_id": task_id, "type": "text_to_model", "status": statut,
-                    "progress": 100 if statut == "success" else 40,
-                    "input": {"prompt": "caisse en bois", "model": "v3.1-20260211"}}
-            if statut == "success":
-                ext = "fbx" if task_id in self.server.conversions else "glb"
-                data["output"] = {"model_url": f"{self.server.base}/fichiers/{task_id}.{ext}?auth_key=xyz"}
-                data["credits_consumed"] = 20
-            if statut == "failed":
-                data.update({"error_code": 5000, "error_msg": "generation failed"})
-            return self._json(200, {"code": 0, "data": data})
+            return self._json(200, {"code": 0, "data": self._tache(self.path.rsplit("/", 1)[1])})
         if self.path.startswith("/fichiers/"):
             if sc.get("fichier_expire"):
                 self.send_response(403)
                 self.send_header("Content-Length", "0")
                 self.end_headers()
                 return
-            corps = b"Kaydara FBX Binary  \x00" if ".fbx" in self.path else glb_triangle()
+            chemin = self.path.split("?")[0]
+            if chemin.endswith(".glb"):
+                corps = glb_triangle()
+            elif chemin.endswith(".fbx"):
+                corps = b"Kaydara FBX Binary  \x00"
+            else:
+                corps = b"\x89PNG\r\n\x1a\n" + chemin.encode()
             self.send_response(200)
-            self.send_header("Content-Type", "model/gltf-binary")
             self.send_header("Content-Length", str(len(corps)))
             self.end_headers()
             self.wfile.write(corps)
             return
         self._json(404, {"code": 404, "status": "error", "message": "not found"})
+
+    def do_PUT(self):
+        longueur = int(self.headers.get("Content-Length") or 0)
+        self.rfile.read(longueur)
+        self._noter(b"<%d octets>" % longueur)
+        self.send_response(200)
+        self.send_header("Content-Length", "0")
+        self.end_headers()
 
     def do_POST(self):
         longueur = int(self.headers.get("Content-Length") or 0)
@@ -122,11 +170,21 @@ class FauxTripo(BaseHTTPRequestHandler):
                                        "suggestion": "test"}, entetes)
         if self.path == "/v3/files":
             return self._json(200, {"code": 0, "data": {"file_token": "file_test_123"}})
-        if self.path.startswith("/v3/generation/") or self.path == "/v3/models/convert":
+        if self.path == "/v3/files/presign":
+            return self._json(200, {"code": 0, "data": {"presigned_url": f"{self.server.base}/depot/gros?sig=1",
+                                                        "file_token": "file_gros_456", "expires_in": 3600}})
+        if self.path == "/v3/tasks/list":
+            ids = json.loads(corps)["task_ids"]
+            connus = [i for i in ids if not i.startswith("inconnu")]
+            return self._json(200, {"code": 0, "data": {
+                "tasks": {i: self._tache(i, avancer=False) for i in connus},
+                "missed": [i for i in ids if i.startswith("inconnu")]}})
+        if self.path.startswith("/v3/"):
             self.server.compteur += 1
-            if self.path == "/v3/models/convert":
-                self.server.conversions.add(f"tache-{self.server.compteur}")
-            return self._json(200, {"code": 0, "data": {"task_id": f"tache-{self.server.compteur}"}})
+            task_id = f"tache-{self.server.compteur}"
+            self.server.operations[task_id] = self.path
+            self.server.corps[task_id] = json.loads(corps or b"{}")
+            return self._json(200, {"code": 0, "data": {"task_id": task_id}})
         self._json(404, {"code": 404, "status": "error", "message": "not found"})
 
     def _refus_cle(self):
@@ -170,7 +228,8 @@ class BaseTest(unittest.TestCase):
         self.serveur.scenario = {"etats": {}}
         self.serveur.requetes = []
         self.serveur.compteur = 0
-        self.serveur.conversions = set()
+        self.serveur.operations = {}
+        self.serveur.corps = {}
         self.dossier = tempfile.mkdtemp()
         self.sorties = []
 
@@ -224,8 +283,10 @@ class TestGeneration(BaseTest):
         self.assertEqual(len(suivis), 3, "queued, running puis success")
 
         telechargement = [r for r in self.serveur.requetes if r["chemin"].startswith("/fichiers/")]
-        self.assertEqual(len(telechargement), 1)
-        self.assertIsNone(telechargement[0]["auth"], "la clé ne doit pas partir vers l'hôte des fichiers")
+        self.assertEqual(len(telechargement), 2, "le modèle et son rendu")
+        for r in telechargement:
+            self.assertIsNone(r["auth"], "la clé ne doit pas partir vers l'hôte des fichiers")
+        self.assertTrue(os.path.exists(self.chemin("caisse_rendered_image.webp")))
 
         with open(sortie, "rb") as f:
             self.assertEqual(f.read(4), b"glTF")
@@ -265,9 +326,10 @@ class TestGeneration(BaseTest):
         self.assertEqual(json.loads(creation["corps"])["input"], "file_test_123")
         with open(self.chemin("ref.tripo.json"), encoding="utf-8") as f:
             fiche = json.load(f)
-        self.assertEqual(fiche["image"]["chemin"], image)
-        self.assertEqual(len(fiche["image"]["sha256"]), 64)
-        self.assertNotIn("input", fiche["parametres"])
+        self.assertEqual(fiche["entrees"][0]["fichier"], image)
+        self.assertEqual(len(fiche["entrees"][0]["sha256"]), 64)
+        self.assertEqual(fiche["parametres"]["input"], "<fichier envoyé : image>",
+                         "le file_token éphémère n'est pas gardé dans la fiche")
 
     def test_format_fbx_passe_par_une_conversion(self):
         res = self.lancer("texte", "tonneau", "--sortie", self.chemin("tonneau.fbx"),
@@ -311,10 +373,9 @@ class TestGeneration(BaseTest):
         self.assertEqual(len([r for r in self.serveur.requetes if r["methode"] == "POST"]), 1)
 
     def test_telecharger_ne_convertit_pas(self):
-        res = self.lancer("telecharger", "tache-5", "--sortie", self.chemin("x.fbx"), "--format", "fbx",
-                          "--intervalle", "0.01")
+        res = self.lancer("telecharger", "tache-5", "--sortie", self.chemin("x.fbx"), "--intervalle", "0.01")
         self.assertEqual(res.returncode, 2)
-        self.assertIn("task_id de la tâche de conversion", res.stderr)
+        self.assertIn("task_id de la conversion", res.stderr)
         self.assertEqual([r for r in self.serveur.requetes if r["methode"] == "POST"], [], "aucune tâche payante")
         self.assertFalse(os.path.exists(self.chemin("x.fbx")))
 
@@ -351,6 +412,268 @@ class TestGeneration(BaseTest):
         self.assertEqual(res.returncode, 0, res.stdout + res.stderr)
         self.assertIn("Crédits disponibles : 1234.0", res.stdout)
         self.assertIn("valeur masquée", res.stdout)
+
+
+class TestCapacites(BaseTest):
+    """Une commande par endpoint de l'apiv3 : chemin, corps envoyé, fichiers écrits."""
+
+    def creation(self):
+        creations = [r for r in self.serveur.requetes
+                     if r["methode"] == "POST" and r["chemin"] not in ("/v3/files", "/v3/files/presign", "/v3/tasks/list")]
+        self.assertTrue(creations, "aucune tâche créée")
+        return creations[0]["chemin"], json.loads(creations[0]["corps"])
+
+    def fiche(self, nom):
+        with open(self.chemin(nom), encoding="utf-8") as f:
+            return json.load(f)
+
+    def image(self, nom="vue.png"):
+        chemin = self.chemin(nom)
+        with open(chemin, "wb") as f:
+            f.write(b"\x89PNG\r\n\x1a\n" + b"\0" * 32)
+        return chemin
+
+    def ok(self, *args):
+        res = self.lancer(*args, "--intervalle", "0.01")
+        self.assertEqual(res.returncode, 0, res.stdout + res.stderr)
+        return res
+
+    def test_multivue_depuis_fichiers(self):
+        self.ok("multivue", "--face", self.image("f.png"), "--dos", "https://exemple.test/dos.png",
+                "--sortie", self.chemin("m.glb"))
+        chemin, corps = self.creation()
+        self.assertEqual(chemin, "/v3/generation/multiview-to-model")
+        self.assertEqual(corps["inputs"], ["file_test_123", None, "https://exemple.test/dos.png", None])
+        self.assertEqual([e["role"] for e in self.fiche("m.tripo.json")["entrees"]], ["face", "dos"])
+
+    def test_multivue_depuis_tache(self):
+        self.ok("multivue", "--depuis-tache", "tache-mv", "--sortie", self.chemin("m.glb"))
+        self.assertEqual(self.creation()[1]["inputs"], [{"task_id": "tache-mv"}])
+
+    def test_multivue_sans_face(self):
+        res = self.lancer("multivue", "--dos", self.image(), "--sortie", self.chemin("m.glb"))
+        self.assertEqual(res.returncode, 2)
+
+    def test_options_de_generation(self):
+        self.ok("texte", "statue", "--sortie", self.chemin("s.glb"), "--qualite-texture", "detailed",
+                "--version-texture", "v3.5-20260815", "--qualite-geometrie", "detailed", "--taille-auto",
+                "--low-poly", "--param", "export_uv=false", "--param", 'export_orientation="+x"')
+        corps = self.creation()[1]
+        for cle, valeur in (("texture_quality", "detailed"), ("texture_version", "v3.5-20260815"),
+                            ("geometry_quality", "detailed"), ("auto_size", True), ("smart_low_poly", True),
+                            ("export_uv", False), ("export_orientation", "+x")):
+            self.assertEqual(corps[cle], valeur, cle)
+
+    def test_quad_donne_un_fbx_sans_conversion(self):
+        self.ok("texte", "chaise", "--quad", "--format", "fbx", "--sortie", self.chemin("c.fbx"))
+        self.assertTrue(self.creation()[1]["quad"])
+        self.assertFalse([r for r in self.serveur.requetes if r["chemin"] == "/v3/models/convert"])
+        self.assertTrue(os.path.exists(self.chemin("c.fbx")))
+
+    def test_quad_exige_fbx(self):
+        res = self.lancer("texte", "chaise", "--quad", "--sortie", self.chemin("c.glb"))
+        self.assertEqual(res.returncode, 2)
+
+    def test_parties_exige_sans_texture(self):
+        res = self.lancer("texte", "robot", "--parties", "--sortie", self.chemin("r.glb"))
+        self.assertEqual(res.returncode, 2)
+        self.ok("texte", "robot", "--parties", "--sans-texture", "--sortie", self.chemin("r.glb"))
+        self.assertTrue(self.creation()[1]["generate_parts"])
+
+    def test_param_ne_remplace_pas_une_option(self):
+        res = self.lancer("texte", "x", "--faces", "100", "--param", "face_limit=200", "--sortie", self.chemin("x.glb"))
+        self.assertEqual(res.returncode, 2)
+
+    def test_image_texte(self):
+        res = self.ok("image-texte", "concept de caisse", "--modele", "seedream_v5", "--ratio", "1:1",
+                      "--sortie", self.chemin("concept.png"))
+        chemin, corps = self.creation()
+        self.assertEqual(chemin, "/v3/generation/text-to-image")
+        self.assertEqual(corps, {"prompt": "concept de caisse", "model": "seedream_v5", "aspect_ratio": "1:1"})
+        self.assertIn("Image écrite :", res.stdout)
+        self.assertTrue(os.path.exists(self.chemin("concept.png")))
+
+    def test_image_image_plusieurs_references(self):
+        self.ok("image-image", self.image("a.png"), "https://exemple.test/b.png", "--prompt", "même objet, rouillé",
+                "--t-pose", "--sortie", self.chemin("r.png"))
+        chemin, corps = self.creation()
+        self.assertEqual(chemin, "/v3/generation/image-to-image")
+        self.assertEqual(corps["inputs"], ["file_test_123", "https://exemple.test/b.png"])
+        self.assertTrue(corps["t_pose"])
+
+    def test_image_image_sans_consigne(self):
+        res = self.lancer("image-image", self.image(), "--sortie", self.chemin("r.png"))
+        self.assertEqual(res.returncode, 2)
+
+    def test_image_multivue_ecrit_quatre_vues(self):
+        self.ok("image-multivue", self.image(), "--sortie", self.chemin("caisse.png"))
+        self.assertEqual(self.creation()[0], "/v3/generation/image-to-multiview")
+        for vue in ("front", "left", "back", "right"):
+            self.assertTrue(os.path.exists(self.chemin(f"caisse_{vue}_view.png")), vue)
+        self.assertEqual(len(self.fiche("caisse.tripo.json")["sorties"]), 4)
+
+    def test_editer_multivue(self):
+        self.ok("editer-multivue", "tache-mv", "--vue", "front=porte ouverte", "--vue", "back=rouille",
+                "--sortie", self.chemin("e.png"))
+        chemin, corps = self.creation()
+        self.assertEqual(chemin, "/v3/generation/edit-multiview")
+        self.assertEqual(corps, {"input": "tache-mv", "prompts": [{"view": "front", "prompt": "porte ouverte"},
+                                                                   {"view": "back", "prompt": "rouille"}]})
+        res = self.lancer("editer-multivue", "t", "--vue", "dessus=x", "--sortie", self.chemin("e2.png"))
+        self.assertEqual(res.returncode, 2)
+
+    def test_splat(self):
+        self.ok("splat", self.image(), "--graine", "3", "--sortie", self.chemin("s.ply"))
+        chemin, corps = self.creation()
+        self.assertEqual(chemin, "/v3/generation/image-to-splat")
+        self.assertEqual(corps["model_seed"], 3)
+        self.assertTrue(os.path.exists(self.chemin("s.ply")))
+
+    def test_profondeur(self):
+        self.ok("profondeur", self.image(), "--type", "color", "--resolution", "504", "--sortie", self.chemin("p.png"))
+        chemin, corps = self.creation()
+        self.assertEqual(chemin, "/v3/generation/image-to-depth")
+        self.assertEqual((corps["kind"], corps["process_res"]), ("color", 504))
+        self.assertTrue(os.path.exists(self.chemin("p.png")))
+        res = self.lancer("profondeur", self.image(), "--resolution", "5000", "--sortie", self.chemin("p2.png"))
+        self.assertEqual(res.returncode, 2)
+
+    def test_retexturer(self):
+        self.ok("retexturer", "tache-modele", "--prompt-texture", "bois peint en vert", "--image-style", self.image(),
+                "--modele", "v3.5-20260815", "--pieces", "couvercle, corps", "--sortie", self.chemin("t.glb"))
+        chemin, corps = self.creation()
+        self.assertEqual(chemin, "/v3/models/texture")
+        self.assertEqual(corps["input"], "tache-modele")
+        self.assertEqual(corps["texture_prompt"], {"text": "bois peint en vert", "style_image": "file_test_123"})
+        self.assertEqual(corps["part_names"], ["couvercle", "corps"])
+        fiche = self.fiche("t.tripo.json")
+        self.assertEqual(fiche["parametres"]["texture_prompt"]["style_image"], "<fichier envoyé : image_style>")
+        self.assertEqual(fiche["entrees"][0], {"role": "modele", "task_id": "tache-modele"})
+
+    def test_convertir(self):
+        self.ok("convertir", "tache-modele", "--format", "fbx", "--echelle", "0.01", "--pivot-bas",
+                "--taille-texture", "2048", "--sortie", self.chemin("c.fbx"))
+        chemin, corps = self.creation()
+        self.assertEqual(chemin, "/v3/models/convert")
+        self.assertEqual(corps, {"input": "tache-modele", "format": "FBX", "texture_size": 2048,
+                                 "scale_factor": 0.01, "pivot_to_center_bottom": True})
+
+    def test_importer_gros_fichier_par_url_presignee(self):
+        gros = self.chemin("gros.glb")
+        with open(gros, "wb") as f:
+            f.truncate(51 * 1024 * 1024)
+        res = self.ok("importer", gros, "--sortie", self.chemin("i.glb"))
+        chemins = [r["chemin"] for r in self.serveur.requetes]
+        self.assertIn("/v3/files/presign", chemins)
+        self.assertIn("/depot/gros?sig=1", chemins)
+        depot = [r for r in self.serveur.requetes if r["chemin"].startswith("/depot/")][0]
+        self.assertIsNone(depot["auth"], "la clé ne part pas vers l'URL pré-signée")
+        self.assertEqual(self.creation(), ("/v3/models/import", {"input": "file_gros_456"}))
+        self.assertIn("sans fichier à télécharger", res.stdout)
+
+    def test_importer_refuse_un_format_inconnu(self):
+        mauvais = self.chemin("m.blend")
+        open(mauvais, "wb").close()
+        res = self.lancer("importer", mauvais, "--sortie", self.chemin("i.glb"))
+        self.assertEqual(res.returncode, 2)
+
+    def test_decimer(self):
+        self.ok("decimer", "tache-modele", "--faces", "1500", "--modele", "v3.0", "--uv-intelligentes",
+                "--sortie", self.chemin("d.glb"))
+        chemin, corps = self.creation()
+        self.assertEqual(chemin, "/v3/mesh/decimate")
+        self.assertEqual(corps, {"input": "tache-modele", "model": "v3.0", "face_limit": 1500, "smart_uv": True})
+        res = self.lancer("decimer", "t", "--uv-intelligentes", "--sortie", self.chemin("d2.glb"))
+        self.assertEqual(res.returncode, 2)
+
+    def test_uv_telecharge_le_rendu_uv(self):
+        self.ok("uv", "tache-modele", "--sortie", self.chemin("u.glb"))
+        self.assertEqual(self.creation()[0], "/v3/mesh/uv")
+        self.assertTrue(os.path.exists(self.chemin("u_uv_render.png")))
+
+    def test_segmenter_et_completer(self):
+        self.ok("segmenter", "tache-modele", "--modele", "v2.0-20260430", "--par-connexite",
+                "--sortie", self.chemin("s.glb"))
+        self.assertEqual(self.creation(), ("/v3/mesh/segment", {
+            "input": "tache-modele", "model": "v2.0-20260430", "split_by_connectivity": True}))
+        self.serveur.requetes.clear()
+        self.ok("completer", "tache-seg", "--mode", "quick_cap", "--pieces", "roue", "--sortie", self.chemin("c.glb"))
+        self.assertEqual(self.creation(), ("/v3/mesh/complete", {
+            "input": "tache-seg", "completion_mode": "quick_cap", "part_names": ["roue"]}))
+
+    def test_segmenter_intelligent(self):
+        glb = self.chemin("source.glb")
+        with open(glb, "wb") as f:
+            f.write(glb_triangle())
+        self.ok("segmenter-intelligent", glb, "--granularite", "fine", "--indice", "roues",
+                "--sortie", self.chemin("si.glb"))
+        chemin, corps = self.creation()
+        self.assertEqual(chemin, "/v3/mesh/smartsegment")
+        self.assertEqual(corps["seg_type"], "model")
+        self.assertEqual(len(corps["transform"]), 16)
+        self.assertEqual((corps["granularity"], corps["hint"]), ("fine", "roues"))
+        res = self.lancer("segmenter-intelligent", "tache-modele", "--sortie", self.chemin("si2.glb"))
+        self.assertEqual(res.returncode, 2, "smartsegment n'accepte pas de task_id")
+
+    def test_riggable(self):
+        res = self.ok("riggable", "tache-modele")
+        self.assertEqual(self.creation(), ("/v3/animations/rig-check", {"input": "tache-modele"}))
+        self.assertIn("Riggable : oui (squelette détecté : biped)", res.stdout)
+
+    def test_rigger(self):
+        self.ok("rigger", "tache-modele", "--type", "quadruped", "--spec", "mixamo", "--sortie", self.chemin("r.glb"))
+        self.assertEqual(self.creation(), ("/v3/animations/rig", {
+            "input": "tache-modele", "rig_type": "quadruped", "spec": "mixamo", "out_format": "glb"}))
+        res = self.lancer("rigger", "t", "--spec", "unity", "--sortie", self.chemin("r2.glb"))
+        self.assertEqual(res.returncode, 2, "unity exige un modèle de rig récent")
+
+    def test_animer_plusieurs_animations(self):
+        self.ok("animer", "tache-rig", "--animation", "walk", "--animation", "preset:run", "--sur-place",
+                "--sortie", self.chemin("perso.glb"))
+        chemin, corps = self.creation()
+        self.assertEqual(chemin, "/v3/animations/retarget")
+        self.assertEqual(corps["animations"], ["preset:walk", "preset:run"])
+        self.assertTrue(corps["animate_in_place"])
+        self.assertTrue(os.path.exists(self.chemin("perso_model_1.glb")))
+        self.assertTrue(os.path.exists(self.chemin("perso_model_2.glb")))
+        res = self.lancer("animer", "t", *sum((["--animation", "walk"] for _ in range(6)), []),
+                          "--sortie", self.chemin("x.glb"))
+        self.assertEqual(res.returncode, 2)
+
+    def test_taches(self):
+        res = self.lancer("taches", "tache-1", "inconnu-2")
+        self.assertEqual(res.returncode, 0, res.stderr)
+        self.assertIn("Tâche tache-1 : success", res.stdout)
+        self.assertIn("inconnu-2 : introuvable", res.stdout)
+
+    def test_consommation(self):
+        res = self.lancer("consommation", "--limite", "2")
+        self.assertEqual(res.returncode, 0, res.stderr)
+        self.assertIn("Total sur ces 2 tâches : 20 crédits", res.stdout)
+        self.assertIn("limit=2", [r["chemin"] for r in self.serveur.requetes][0])
+
+    def test_envoyer(self):
+        res = self.lancer("envoyer", self.image())
+        self.assertEqual(res.returncode, 0, res.stderr)
+        self.assertIn("file_token : file_test_123", res.stdout)
+
+    def test_brut(self):
+        self.ok("brut", "/v3/mesh/nouveau", "--corps", '{"input": "tache-modele", "option": 1}',
+                "--sortie", self.chemin("b.glb"))
+        self.assertEqual(self.creation(), ("/v3/mesh/nouveau", {"input": "tache-modele", "option": 1}))
+        res = self.lancer("brut", "/v2/openapi/task", "--corps", "{}", "--sortie", self.chemin("b2.glb"))
+        self.assertEqual(res.returncode, 2)
+
+    def test_telecharger_devine_la_nature(self):
+        self.serveur.operations["tache-img"] = "/v3/generation/text-to-image"
+        self.ok("telecharger", "tache-img", "--sortie", self.chemin("i.png"))
+        self.assertTrue(os.path.exists(self.chemin("i.png")))
+
+    def test_a_blanc_sans_cle_ni_reseau(self):
+        res = self.lancer("multivue", "--face", self.image(), "--sortie", self.chemin("m.glb"), "--a-blanc", cle=None)
+        self.assertEqual(res.returncode, 0, res.stderr)
+        self.assertEqual(self.serveur.requetes, [])
+        self.assertIn("<file_token de vue.png>", res.stdout)
 
 
 class TestErreurs(BaseTest):

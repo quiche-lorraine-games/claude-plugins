@@ -1,6 +1,6 @@
 ---
 name: generer
-description: Génère des modèles 3D avec l'API Tripo 3D (apiv3) puis les range dans un projet Godot. À charger quand on veut créer un prop ou un asset 3D plein et non interactif (caisse, rocher, mobilier, débris, objet de décor, arme posée) depuis un prompt ou une image, le télécharger en GLB, contrôler son poids, son nombre de faces et son échelle, l'importer dans Godot et vérifier l'import en headless. Couvre aussi la reprise d'une tâche Tripo (statut, téléchargement), les crédits, la clé TRIPO_API_KEY et les erreurs (réseau bloqué, clé refusée, crédits épuisés, tâche échouée, délai dépassé). Ne convient pas aux pièces de kit modulaire qui doivent s'emboîter au millimètre, ni aux personnages à animer finement.
+description: Pilote toute l'API Tripo 3D (apiv3) et range les résultats dans un projet Godot. À charger quand on veut créer un prop ou un asset 3D plein et non interactif (caisse, rocher, mobilier, débris, objet de décor, arme posée) depuis un prompt, une image ou plusieurs vues ; retravailler un modèle existant ou importé (retexturer, réduire les faces, déplier les UV, convertir en FBX/OBJ/USDZ/STL, découper en pièces) ; produire des images de concept ou des vues multiples ; rigger et animer une créature de prototype ; puis contrôler le poids, le nombre de faces et l'échelle, importer dans Godot et vérifier l'import en headless. Couvre aussi la reprise d'une tâche Tripo, les crédits, la clé TRIPO_API_KEY et les erreurs (réseau bloqué, clé refusée, crédits épuisés, tâche échouée, délai dépassé). Ne convient pas aux pièces de kit modulaire qui doivent s'emboîter au millimètre, ni aux personnages à animer finement.
 ---
 
 # Générer un modèle 3D avec Tripo
@@ -12,6 +12,8 @@ TRIPO="${CLAUDE_PLUGIN_ROOT}/skills/generer/scripts/tripo.py"
 python3 "$TRIPO" --help
 ```
 
+Le script a une sous-commande par capacité de l'API. Toutes sont décrites dans [commandes.md](commandes.md) : options, endpoints, enchaînements. Ce fichier-ci donne les règles communes et le déroulé.
+
 Le projet prime : ses conventions (dossier, nommage, budget, style) l'emportent sur les valeurs par défaut de ce skill.
 
 ## Quand s'en servir
@@ -20,11 +22,13 @@ Le projet prime : ses conventions (dossier, nommage, budget, style) l'emportent 
 - Objets de décor : caisses, tonneaux, rochers, mobilier, débris, végétation isolée, machines.
 - Objets posés ou ramassables sans mécanisme : munitions, outils, nourriture, armes au sol.
 - Premier jet pour valider une silhouette ou une échelle avant de commander un asset fait main.
+- Retravailler un modèle Tripo ou importé : l'alléger, le retexturer, lui faire des UV, le convertir.
+- Créatures et PNJ **de prototype**, riggés et animés avec les préréglages de Tripo.
 
 **Non**, propose une autre voie (modélisation, kit existant, primitive) :
 - pièces de kit modulaire (murs, sols, coins, portes de niveau) : elles doivent s'emboîter au millimètre sur une grille, ce que Tripo ne garantit pas ;
 - objets à pièces mobiles ou articulées (porte qui s'ouvre, levier, véhicule) ;
-- personnages et créatures à animer finement, visages ;
+- personnages et créatures du jeu final à animer finement, visages ;
 - tout ce qui sert de collision précise ou de repère de gameplay ;
 - logos, textes lisibles, marques.
 
@@ -52,27 +56,68 @@ Il te faut au minimum :
 
 **S'il manque une de ces informations, demande-la à l'utilisateur au lieu de deviner.** Propose-lui ensuite d'écrire ses réponses dans `.claude/tripo.md` à partir du gabarit, pour ne pas reposer la question.
 
+## Choisir la commande
+
+| Besoin | Commande |
+|---|---|
+| Un prop depuis une description | `texte` |
+| Un prop depuis un concept (une image) | `image` |
+| Un prop fidèle à plusieurs vues | `multivue`, éventuellement après `image-multivue` |
+| Une image de concept, ou la retoucher | `image-texte`, `image-image` |
+| Modèle trop lourd | `decimer` (pas une nouvelle génération) |
+| Changer matériaux ou couleurs | `retexturer` (pas une nouvelle génération) |
+| UV propres pour texturer à la main | `uv` |
+| Un autre format que GLB | `convertir` |
+| Retravailler un modèle qui ne vient pas de Tripo | `importer`, puis la commande voulue |
+| Séparer les pièces d'un modèle | `segmenter`, `segmenter-intelligent`, puis `completer` |
+| Animer une créature de prototype | `riggable` (gratuit), `rigger`, `animer` |
+| Carte de profondeur, splat | `profondeur`, `splat` |
+| Endpoint récent que le script ne connaît pas | `brut` |
+
+Retravailler coûte moins cher que régénérer. Corriger le poids ou la texture d'un modèle presque bon ne doit jamais passer par une nouvelle génération sans l'accord de l'utilisateur.
+
 ## Coût
 
 Chaque génération consomme des crédits Tripo. Le compte est pré-payé : 1 crédit = 0,01 $.
 
-Barème publié pour le modèle par défaut `v3.1-20260211` (H3.1), à vérifier sur la [page de prix](https://developers.tripo3d.ai/en/pricing) :
+Barème publié au 22/10/2026, à vérifier sur la [page de prix](https://developers.tripo3d.ai/en/pricing). Générations avec le modèle par défaut `v3.1-20260211` (H3.1) :
 
 | Tâche | Sans texture | Texture standard | Texture detailed |
 |---|---|---|---|
-| Texte → modèle (`texte`) | 10 | 20 | 30 |
-| Image → modèle (`image`) | 20 | 30 | 40 |
+| `texte` | 10 | 20 | 30 |
+| `image`, `multivue` | 20 | 30 | 40 |
 
-Suppléments :
+Suppléments de génération :
+- `--qualite-geometrie detailed` : +20 ;
+- `--quad` : +5 ;
 - `--low-poly` : +10 ;
-- conversion `--format fbx|obj` : 5 à 10 par conversion ;
-- modèles P1 : 30 à 60 ; modèles P2 : 100 à 130.
+- `--parties` : +20 ;
+- texture 8K (`extreme`) : +20.
 
-Une tâche échouée ou annulée n'est pas débitée.
+Les modèles P1 coûtent de 30 à 60 crédits, les modèles P2 de 100 à 130.
+
+| Autres tâches | Crédits |
+|---|---|
+| `retexturer` | 10 (standard) à 30 (8K) |
+| `convertir`, ou `--format fbx\|obj` | 5 (options par défaut) à 10 |
+| `decimer` | 10 à 40 |
+| `uv` | 20 |
+| `segmenter` | 40 |
+| `segmenter-intelligent` | 85 depuis une image, 55 depuis un modèle |
+| `completer` | 50 (`ai_completion`), 30 (`quick_cap`) |
+| `riggable` | gratuit |
+| `rigger` | 25 |
+| `animer` | 10 par animation |
+| `image-texte`, `image-image` | 5 à 20 selon le modèle d'image |
+| `image-multivue` | 10 |
+| `editer-multivue` | 5 par vue modifiée |
+| `importer`, `splat`, `profondeur`, `brut` | non publié : vérifie la page de prix, puis le champ `credits` du `.tripo.json` après coup |
+
+`verifier`, `consommation`, `envoyer`, `statut`, `taches`, `telecharger` et `inspecter` sont gratuits. Une tâche échouée ou annulée n'est pas débitée. `consommation` liste les crédits réellement débités.
 
 Règles :
 - **Une génération demandée explicitement** par l'utilisateur : annonce son coût en une ligne (ex. « texte → modèle, texture standard : 20 crédits »), puis lance-la. Fais-le sauf si les conventions du projet exigent un accord à chaque fois.
-- **Avant une série** (2 générations ou plus), une option payante (`detailed`, `--low-poly`, conversion, modèle P1 ou P2) ou une variante non demandée : annonce combien de générations tu vas lancer et le total estimé de crédits. **Attends l'accord.**
+- **Avant une série** (2 tâches payantes ou plus, y compris un enchaînement comme `rigger` puis `animer`), une option payante (`detailed`, `--low-poly`, `--quad`, `--parties`, conversion, modèle P1 ou P2) ou une variante non demandée : annonce combien de tâches tu vas lancer et le total estimé de crédits. **Attends l'accord.**
 - **Ne relance jamais en boucle pour « améliorer ».** Après un résultat décevant, montre-le, dis ce qui ne va pas, propose un prompt corrigé et son coût, et laisse l'utilisateur décider.
 - Pour montrer la requête sans rien dépenser, ajoute `--a-blanc`.
 
@@ -95,7 +140,7 @@ Si le brief couvre plusieurs objets, c'est une série : applique la règle de co
 - Ajoute les mots de style imposés par les conventions du projet.
 - Évite les décors, les socles, le texte et les personnages autour de l'objet. Mets-les plutôt dans `--negatif`.
 - En anglais de préférence. 1 024 caractères au maximum.
-- Pour partir d'un concept existant, utilise `image` avec une image nette de l'objet seul, sur fond uni, en PNG ou JPEG de 20 Mo au maximum.
+- Pour partir d'un concept existant, utilise `image` avec une image nette de l'objet seul, sur fond uni, en PNG, JPEG ou WebP de 20 Mo au maximum. Avec plusieurs vues du même objet, utilise `multivue`.
 
 Montre le prompt à l'utilisateur avant une série.
 
@@ -109,9 +154,9 @@ python3 "$TRIPO" texte "weathered wooden supply crate, metal corners, stenciled 
 python3 "$TRIPO" image concepts/caisse.png --sortie assets/props/caisses/caisse_bois_02.glb --faces 3000
 ```
 
-Le script crée la tâche, suit son avancement (intervalle croissant de 3 à 15 s) et télécharge le modèle. Il écrit ensuite la fiche `caisse_bois_01.tripo.json` à côté du fichier, puis affiche le contrôle du résultat.
+Le script crée la tâche, suit son avancement (intervalle croissant de 3 à 15 s) et télécharge le modèle, avec ses autres sorties (aperçu `caisse_bois_01_rendered_image.*`). Il écrit ensuite la fiche `caisse_bois_01.tripo.json` à côté du fichier, puis affiche le contrôle du résultat. Il affiche aussi le `task_id`, à réutiliser pour retravailler le modèle (voir [commandes.md](commandes.md)).
 
-Options :
+Options principales (liste complète dans [commandes.md](commandes.md)) :
 
 | Option | Effet |
 |---|---|
@@ -125,6 +170,7 @@ Options :
 | `--low-poly` | topologie low-poly (`smart_low_poly`), avec supplément |
 | `--modele` | version du modèle Tripo, `v3.1-20260211` par défaut |
 | `--graine N` | graine, pour refaire un résultat proche |
+| `--param CLE=VALEUR` | champ de l'API sans option dédiée, envoyé tel quel |
 | `--delai S` | attente maximale, 600 s par défaut |
 | `--sans-attendre` | crée la tâche et rend la main ; reprise avec `telecharger` |
 | `--a-blanc` | affiche la requête sans l'envoyer |
@@ -136,7 +182,7 @@ python3 "$TRIPO" statut <task_id>
 python3 "$TRIPO" telecharger <task_id> --sortie assets/props/caisses/caisse_bois_01.glb
 ```
 
-`telecharger` ne relance pas de génération et ne coûte rien. Si la tâche est encore en cours, il l'attend. Il ne convertit pas : pour un FBX ou un OBJ, passe-lui le `task_id` de la conversion (champ `conversion` du `.tripo.json`), avec `--format fbx` ou `--format obj`.
+`telecharger` ne relance pas de génération et ne coûte rien. Si la tâche est encore en cours, il l'attend. Il ne convertit pas : pour un FBX ou un OBJ, passe-lui le `task_id` de la conversion (champ `conversion` du `.tripo.json`), avec une `--sortie` en `.fbx` ou en `.obj`.
 
 ### 4. Contrôle du résultat
 
@@ -147,6 +193,8 @@ Le script affiche, et range dans le champ `controle` du `.tripo.json`, les valeu
 - textures et leur résolution ;
 - extensions glTF requises.
 
+Si Tripo a fourni un aperçu (`<nom>_rendered_image.*`), regarde-le avant de présenter le résultat.
+
 Pour un GLB déjà présent :
 
 ```bash
@@ -155,7 +203,7 @@ python3 "$TRIPO" inspecter assets/props/caisses/caisse_bois_01.glb
 
 Compare ces valeurs aux conventions et au brief :
 - **faces** au-dessus de la limite : le script avertit. Signale-le, sans relancer d'office.
-- **poids** : au-dessus du budget, ce sont souvent les textures. Propose `--sans-pbr`, une texture standard ou une réduction dans Godot.
+- **poids** : au-dessus du budget, ce sont souvent les textures. Propose `--sans-pbr`, une texture standard, `decimer` pour la géométrie, ou une réduction dans Godot.
 - **échelle** : Tripo rend souvent l'objet dans une boîte d'environ 1 unité. Corrige l'échelle à l'import dans Godot (option `nodes/root_scale` du `.import`, ou échelle de la scène qui l'instancie, selon les conventions). Ne régénère pas pour une question d'échelle. `--taille-auto` aide pour les prochaines générations.
 - **orientation et pivot** : vérifie que l'avant et le sol sont corrects une fois dans Godot.
 
@@ -187,14 +235,15 @@ Si Godot n'est pas installé dans l'environnement, dis-le clairement : le modèl
 
 ## Fiche `.tripo.json`
 
-Chaque modèle a une fiche, à côté de lui (`caisse_bois_01.glb` → `caisse_bois_01.tripo.json`). Elle permet de retrouver et de refaire l'asset. Elle contient :
-- le prompt, ou l'image source (chemin, taille, empreinte SHA-256) ;
+Chaque résultat a une fiche, à côté de lui (`caisse_bois_01.glb` → `caisse_bois_01.tripo.json`). Elle permet de retrouver et de refaire l'asset. Elle contient :
+- l'opération (endpoint) et le prompt ;
+- les entrées : fichiers (chemin, taille, empreinte SHA-256), URL ou `task_id` des tâches précédentes, ce qui retrace la chaîne de fabrication ;
 - le `task_id` ;
 - les paramètres envoyés ;
 - la version du modèle Tripo ;
 - la date ;
 - les crédits débités, si l'API les donne ;
-- l'hôte d'où vient le fichier ;
+- la liste des fichiers écrits et l'hôte d'où ils viennent ;
 - le contrôle.
 
 Ne la modifie pas à la main. Pour refaire un asset, relis-la et relance avec les mêmes prompt, paramètres et graine, après accord sur le coût.

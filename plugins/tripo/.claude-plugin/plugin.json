@@ -1,9 +1,16 @@
 {
   "name": "tripo",
-  "description": "Génération de modèles 3D avec l'API Tripo 3D (apiv3), puis rangement et vérification de l'import dans un projet Godot : brief, prompt, génération, contrôle (poids, faces, échelle), import headless, traçabilité de chaque asset.",
+  "description": "Toute l'API Tripo 3D (apiv3) pour un agent, avec rangement et vérification de l'import dans un projet Godot : génération de modèles (prompt, image, vues multiples), retexture, réduction des faces, UV, conversion, segmentation, rig et animation, images de concept ; contrôle du poids, des faces et de l'échelle ; traçabilité de chaque asset.",
   "author": {
     "name": "Quiche Lorraine Games"
   },
   "repository": "https://github.com/quiche-lorraine-games/claude-plugins",
-  "keywords": ["tripo", "3d", "generation-3d", "assets", "godot", "glb"]
+  "keywords": [
+    "tripo",
+    "3d",
+    "generation-3d",
+    "assets",
+    "godot",
+    "glb"
+  ]
 }

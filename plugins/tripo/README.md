@@ -1,10 +1,17 @@
 # tripo
 
-Plugin Claude Code qui permet à un agent de **générer des modèles 3D avec l'API de [Tripo 3D](https://developers.tripo3d.ai/en)**, puis de les ranger dans un projet Godot : brief, prompt, génération, contrôle du résultat (poids, nombre de faces, échelle), import dans Godot et vérification de l'import en headless.
+Plugin Claude Code qui donne à un agent **toute l'API de [Tripo 3D](https://developers.tripo3d.ai/en)** (apiv3), puis lui fait ranger les résultats dans un projet Godot : brief, prompt, génération, contrôle du résultat (poids, nombre de faces, échelle), import dans Godot et vérification de l'import en headless.
+
+Ce que l'agent peut faire :
+- **générer un modèle** depuis un prompt, une image ou plusieurs vues ;
+- **retravailler un modèle** Tripo ou importé : retexturer, réduire les faces, déplier les UV, convertir (GLTF, USDZ, FBX, OBJ, STL, 3MF), découper en pièces et compléter ces pièces ;
+- **produire des images** : concept depuis un prompt, retouche d'image, quatre vues d'un objet et retouche de ces vues, carte de profondeur, splat gaussien ;
+- **animer** : vérifier qu'un modèle peut être riggé, le rigger, lui appliquer des animations prédéfinies ;
+- **suivre le compte** : solde, historique de consommation, statut d'une ou plusieurs tâches.
 
 Le plugin contient :
 - **le skill `tripo:generer`** : quand utiliser Tripo et quand l'éviter, le déroulé en six étapes, où trouver les conventions du projet, les règles de coût, les erreurs et ce qu'il faut en dire, la sécurité de la clé ;
-- **le script `skills/generer/scripts/tripo.py`** : client de l'API REST Tripo (apiv3) en Python 3, bibliothèque standard uniquement. Sous-commandes `verifier`, `texte`, `image`, `statut`, `telecharger` et `inspecter`. Chaque modèle téléchargé reçoit une fiche `.tripo.json` qui permet de le retrouver et de le refaire ;
+- **le script `skills/generer/scripts/tripo.py`** : client de l'API REST Tripo (apiv3) en Python 3, bibliothèque standard uniquement. Il a une sous-commande par endpoint, listées dans [`skills/generer/commandes.md`](skills/generer/commandes.md), et une commande `brut` pour un endpoint qu'il ne connaît pas encore. Chaque résultat téléchargé reçoit une fiche `.tripo.json` qui permet de le retrouver, de retracer sa chaîne de fabrication et de le refaire ;
 - **un hook de démarrage**, sans appel réseau, qui ne dit rien si `TRIPO_API_KEY` est définie, et signale en une ligne son absence ;
 - **un gabarit de conventions** ([`skills/generer/conventions-exemple.md`](skills/generer/conventions-exemple.md)) à copier dans le projet du jeu, en `.claude/tripo.md`.
 
@@ -57,6 +64,7 @@ Pour une session Claude Code dans le cloud, régler l'environnement (menu de l'e
    - `api.tripo3d.ai` est l'hôte de l'**ancienne API v2**, qui n'accepte plus de requêtes à partir du 31/10/2026 à 16:00 UTC. Le plugin ne s'en sert pas.
    - Les exemples de la documentation montrent des URL de modèles sur `cdn.tripo3d.ai`, mais ce domaine ne résolvait pas au 21/10/2026 : c'est un exemple, pas l'hôte réel.
    - L'hôte réel de chaque fichier est écrit dans le champ `hote_fichier` du `.tripo.json`. Si le téléchargement est bloqué, le script cite le domaine à ajouter.
+   - Les fichiers de plus de 50 Mo (modèles à `importer`, jusqu'à 150 Mo) sont envoyés sur une URL pré-signée. Son hôte n'est pas documenté. S'il est bloqué, le script le cite aussi.
 
 2. **Secret** : enregistrer la clé API Tripo (créée dans la console Tripo, page *API Keys*) en variable d'environnement **`TRIPO_API_KEY`** dans les réglages de l'environnement. Ne jamais la coller dans le chat ni la commiter. Une clé ajoutée en *Network secret* (injectée par le proxy dans les requêtes) ne suffit pas : le script et le hook lisent la variable d'environnement.
 
@@ -76,18 +84,29 @@ Pour la vérification de l'import (étape 6 du skill), Godot doit être install�
 
 L'API est pré-payée : 1 crédit = 0,01 $. Le paiement se fait à l'usage, par recharge depuis 1 $ ([prix](https://developers.tripo3d.ai/en/pricing), [facturation](https://developers.tripo3d.ai/en/docs/billing)).
 
-Barème du modèle par défaut du script, `v3.1-20260211` (H3.1), d'après sa [page](https://developers.tripo3d.ai/en/models/v3-1) au 21/10/2026 :
+Barème publié au 22/10/2026 (pages [prix](https://developers.tripo3d.ai/en/pricing) et [H3.1](https://developers.tripo3d.ai/en/models/v3-1)). Générations avec le modèle par défaut du script, `v3.1-20260211` :
 
 | Tâche | Sans texture | Texture standard | Texture detailed |
 |---|---|---|---|
 | Texte → modèle | 10 | 20 | 30 |
-| Image → modèle | 20 | 30 | 40 |
+| Image ou vues multiples → modèle | 20 | 30 | 40 |
 
-Suppléments et autres modèles :
-- `smart_low_poly` (`--low-poly`) : +10 ;
-- conversion de format (`--format fbx|obj`) : 5 à 10 ;
-- modèles [P1](https://developers.tripo3d.ai/en/models/p1) : 30 à 60 ;
-- modèles [P2](https://developers.tripo3d.ai/en/models/p2) : 100 à 130.
+Suppléments : géométrie detailed +20, quads +5, low-poly +10, pièces séparées +20, texture 8K +20. Modèles [P1](https://developers.tripo3d.ai/en/models/p1) : 30 à 60 ; [P2](https://developers.tripo3d.ai/en/models/p2) : 100 à 130.
+
+| Autres tâches | Crédits |
+|---|---|
+| Retexture | 10 à 30 |
+| Conversion de format | 5 à 10 |
+| Réduction des faces | 10 à 40 |
+| UV automatiques | 20 |
+| Segmentation | 40 ; intelligente : 85 (image) ou 55 (modèle) |
+| Complétion des pièces | 50, ou 30 en `quick_cap` |
+| Vérification de rig | gratuite |
+| Rig | 25 ([page Rigging](https://developers.tripo3d.ai/en/models/rig)) |
+| Animation | 10 par animation |
+| Image depuis un prompt ou une image | 5 à 20 selon le modèle d'image |
+| Quatre vues depuis une image | 10 ; retouche : 5 par vue |
+| Import, splat, profondeur | non publié |
 
 Les crédits sont gelés à la création de la tâche, débités si elle réussit, et rendus si elle échoue ou est annulée. Le solde s'affiche avec `tripo.py verifier`.
 
@@ -131,7 +150,9 @@ python3 -m unittest discover -s plugins/tripo/tests -v
 Les tests lancent le script contre un faux serveur HTTP local (`http.server`) qui imite l'API, et contre un faux proxy qui refuse les connexions. L'URL de base se règle par `--api` ou `TRIPO_API_BASE`, et les hôtes de fichiers testés par `TRIPO_HOTES_FICHIERS`.
 
 Les tests couvrent :
-- la création de tâche, le suivi jusqu'au succès, le téléchargement et le `.tripo.json` ;
+- la création de tâche, le suivi jusqu'au succès, le téléchargement de toutes les sorties et le `.tripo.json` ;
+- chaque sous-commande : endpoint appelé, corps envoyé, fichiers écrits, validations locales ;
+- l'envoi de fichiers, y compris par URL pré-signée au-delà de 50 Mo ;
 - la conversion de format et la reprise d'une tâche (`telecharger`) ;
 - chaque cas d'erreur et son code de sortie ;
 - l'absence de la clé dans toutes les sorties et tous les fichiers ;
@@ -150,7 +171,12 @@ Le script vise l'**apiv3** (`https://openapi.tripo3d.ai/v3`, en-tête `Authoriza
 - [Billing](https://developers.tripo3d.ai/en/docs/billing) : `GET /v3/account/balance` → `balance`, `frozen` ; gel, débit et remboursement des crédits.
 - [Rate Limits & Concurrency](https://developers.tripo3d.ai/en/docs/rate-limits) : HTTP 429 avec le code 1007 (débit) ou 2000 (tâches simultanées), en-tête `Retry-After`.
 - [Errors](https://docs.tripo3d.ai/get-started/errors-and-error-handling.html) : 401/1002 authentification, 400/2008 politique de contenu, 403/2010 crédits insuffisants ; en-tête `X-Tripo-Trace-ID`.
-- [Models & Versions](https://developers.tripo3d.ai/en/docs/models-and-versions) et [Tripo H3.1](https://developers.tripo3d.ai/en/models/v3-1) : `v3.1-20260211` est le modèle par défaut.
+- [Models & Versions](https://developers.tripo3d.ai/en/docs/models-and-versions) et [Tripo H3.1](https://developers.tripo3d.ai/en/models/v3-1) : `v3.1-20260211` est le modèle par défaut ; `seedream_v4` est le modèle d'image par défaut.
+- [Multiview to 3D Model](https://developers.tripo3d.ai/en/docs/generation-multiview-to-model/p) et [Image to Multiview](https://developers.tripo3d.ai/en/docs/generation-image-to-multiview) : vues multiples.
+- [Mesh Segmentation](https://developers.tripo3d.ai/en/docs/mesh-segment) et [Smart Segmentation](https://developers.tripo3d.ai/en/docs/mesh-smartsegment) : `POST /v3/mesh/segment` ; `POST /v3/mesh/smartsegment` avec `seg_type`, `input`, `granularity`, `hint` et `transform`.
+- [Auto Rig](https://developers.tripo3d.ai/en/docs/animations-rig) et [Animation Retarget](https://developers.tripo3d.ai/en/docs/animations-retarget) : `out_format` glb ou fbx, `animation` ou `animations` (5 au maximum), sortie `output.model_urls`.
+- [Batch Task Query](https://developers.tripo3d.ai/en/docs/task-batch-query) : `POST /v3/tasks/list`, réponse `tasks` et `missed`.
+- [Webhooks](https://developers.tripo3d.ai/en/docs/webhooks) : configurés dans la console, avec un serveur HTTPS public. Non utilisés : le script suit les tâches en interrogeant l'API.
 - Le SDK Python officiel [tripo3d 1.0.0](https://pypi.org/project/tripo3d/1.0.0/) a servi à recouper les chemins, les statuts de tâche (`queued`, `running`, `success`, `failed`, `cancelled`, `banned`, `expired`, `unknown`) et l'enveloppe `{code, data}`.
 
 Ce qui reste incertain, et comment le script le gère :
@@ -158,6 +184,7 @@ Ce qui reste incertain, et comment le script le gère :
 - **Clé invalide.** Elle renvoie HTTP 401 avec `{"code": 2, "message": "Invalid API key"}` (observé le 21/10/2026), et non le code 1002 de la documentation. Le script traite donc tout 401 comme une clé refusée.
 - **Hôte des fichiers et durée de vie des URL.** Ils ne sont pas documentés de façon fiable : 5 minutes selon le Quick Start, plus longtemps selon des projets tiers. Le script télécharge aussitôt la tâche réussie. `telecharger <task_id>` relit la tâche pour obtenir une URL neuve.
 - **`face_limit` sans valeur.** La documentation dit que Tripo choisit une topologie adaptative ; une autre page parle de 10 000 faces. Mieux vaut toujours passer `--faces`.
-- **Options de `texture_quality`.** Le script ne propose que `standard` et `detailed`. `fast` et `extreme` existent, mais dépendent de la version de texture (`texture_version`).
+- **Options de `texture_quality`.** `fast` et `extreme` dépendent de la version de texture (`--version-texture`). La documentation ne dit pas exactement lesquelles les acceptent : l'API renvoie l'erreur 1004 sinon.
+- **Endpoints décrits seulement par le SDK.** Pour `image-to-image`, `edit-multiview`, `image-to-splat`, `image-to-depth`, `models/import`, `mesh/uv`, `mesh/complete` et `files/presign`, les champs viennent du SDK officiel. Les pages de doc correspondantes n'ont pas été trouvées ou lues en entier. La forme exacte de certaines sorties (format du splat, `model_urls` d'une animation) n'est pas documentée : le script télécharge toutes les URL qu'il trouve dans la sortie.
 - **Champ `credits_consumed` de la tâche.** Il est recopié dans le `.tripo.json` s'il est présent ; sa présence n'est pas garantie par la documentation.
-- **Appel réel.** Ce plugin n'a pas encore été validé par une génération réelle : voir la PR qui l'a introduit.
+- **Appel réel.** Aucune de ces commandes n'a encore été validée par un appel réel payant : voir les PR qui les ont introduites.

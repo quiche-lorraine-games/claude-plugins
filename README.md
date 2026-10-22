@@ -7,7 +7,7 @@ Marketplace de plugins Claude Code de Quiche Lorraine Games (`quiche-lorraine-ga
 | Plugin | Contenu |
 |---|---|
 | [game-design](plugins/game-design/) | Référentiel de game design général en français : fiches thématiques, fiches genres, gabarits, glossaire et sources, consultés par les agents pendant le développement d'un jeu. |
-| [tripo](plugins/tripo/) | Génération de modèles 3D (props, assets pleins) avec l'API Tripo 3D, contrôle du résultat et import vérifié dans un projet Godot. Demande une clé `TRIPO_API_KEY` et l'accès réseau à Tripo : voir son README. |
+| [tripo](plugins/tripo/) | Toute l'API Tripo 3D : génération de modèles 3D (props, assets pleins), retexture, réduction des faces, conversion, rig et animation, images de concept ; contrôle du résultat et import vérifié dans un projet Godot. Demande une clé `TRIPO_API_KEY` et l'accès réseau à Tripo : voir son README. |
 
 ## Installation
 

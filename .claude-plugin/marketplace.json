@@ -13,7 +13,7 @@
     {
       "name": "tripo",
       "source": "./plugins/tripo",
-      "description": "Génération de modèles 3D avec l'API Tripo 3D, puis rangement et vérification de l'import dans un projet Godot."
+      "description": "Toute l'API Tripo 3D (génération, retexture, réduction des faces, conversion, rig et animation…), avec rangement et vérification de l'import dans un projet Godot."
     }
   ]
 }
