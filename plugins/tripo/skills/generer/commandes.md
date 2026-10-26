@@ -40,6 +40,7 @@ Toutes les capacités de l'apiv3 de Tripo, une sous-commande par endpoint. Ce fi
 |---|---|
 | `texte "prompt" [--negatif "..."]` | `POST /v3/generation/text-to-model` ; prompt de 1 024 caractères au maximum, `--negatif` de 255 |
 | `image ENTREE [--autofix]` | `POST /v3/generation/image-to-model` |
+| `image ENTREE --multivue` | `POST /v3/generation/image-to-multiview`, puis `POST /v3/generation/multiview-to-model` |
 | `multivue --face F [--gauche G] [--dos D] [--droite R]` ou `multivue --depuis-tache ID` | `POST /v3/generation/multiview-to-model` |
 
 Options communes aux trois :
@@ -62,6 +63,8 @@ Pour `image` et `multivue` seulement :
 Pour `multivue`, la vue de face est obligatoire et les autres sont facultatives. `--depuis-tache` prend le `task_id` d'un `image-multivue` ou d'un `editer-multivue`.
 
 Pour un objet, `image` donne des formes bien plus fidèles et nettes que `texte`, qui produit des surfaces bosselées et ajoute des pièces malgré `--negatif`. Voir la chaîne conseillée dans « Enchaînements utiles ».
+
+`image --multivue` fait les deux tâches en un seul appel. D'abord quatre vues depuis l'image (10 crédits), écrites à côté du modèle (`<nom>_front_view.png`, `_left_view`, `_back_view`, `_right_view`). Ensuite le modèle depuis ces vues, par leur `task_id`. Les options de génération s'appliquent au modèle. `--autofix` est refusé avec `--multivue`. La fiche garde le `task_id` des vues (champ `multivue`), pour les retoucher avec `editer-multivue` puis relancer `multivue --depuis-tache` sans refaire les vues. Pour retoucher les vues **avant** de générer le modèle, garde les commandes séparées.
 
 Les GLB `--low-poly` ont un jeu de sommets par facette (arêtes vives). Dans Blender, ils arrivent en centaines de morceaux : *Merge Vertices* à l'import, ou *Merge by Distance* en mode édition. glTF stocke une normale par sommet : un GLB ne peut pas être à la fois soudé et en facettes.
 
@@ -134,11 +137,14 @@ Chaque commande affiche le `task_id` de sa tâche, et le `.tripo.json` le garde.
 python3 "$TRIPO" image-texte "rusty fuel barrel, game asset, plain background" --taille 2048x2048 --sortie concepts/baril_a.png
 python3 "$TRIPO" image-texte "rusty fuel barrel, game asset, plain background" --taille 2048x2048 --sortie concepts/baril_b.png
 python3 "$TRIPO" image concepts/baril_b.png --low-poly --faces 1500 --sortie assets/props/baril_01.glb
+# Variante : quatre vues d'abord, pour un dos et des côtés fidèles (+10 crédits)
+python3 "$TRIPO" image concepts/baril_b.png --multivue --low-poly --faces 1500 --sortie assets/props/baril_01.glb
 
-# Concept → vues → modèle
+# Concept → vues → retouche → modèle (pour corriger une vue avant de générer)
 python3 "$TRIPO" image-texte "rusty fuel barrel, game asset, neutral background" --sortie concepts/baril.png
 python3 "$TRIPO" image-multivue concepts/baril.png --sortie concepts/baril_vues.png
-python3 "$TRIPO" multivue --depuis-tache <id image-multivue> --sortie assets/props/baril_01.glb --faces 3000
+python3 "$TRIPO" editer-multivue <id image-multivue> --vue "back=rusty hatch" --sortie concepts/baril_vues2.png
+python3 "$TRIPO" multivue --depuis-tache <id editer-multivue> --sortie assets/props/baril_01.glb --faces 3000
 
 # Modèle trop lourd ou mal texturé : retravailler sans régénérer
 python3 "$TRIPO" decimer <id modèle> --faces 1500 --sortie assets/props/baril_01_lod1.glb

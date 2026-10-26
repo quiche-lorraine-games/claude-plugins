@@ -62,7 +62,8 @@ Il te faut au minimum :
 |---|---|
 | Un prop depuis une description | `image-texte` (3 ou 4 variantes), choix de l'utilisateur, puis `image --low-poly` ; `texte` pour un premier jet |
 | Un prop depuis un concept (une image) | `image` |
-| Un prop fidèle à plusieurs vues | `multivue`, éventuellement après `image-multivue` |
+| Un prop dont le dos et les côtés comptent | `image --multivue` (quatre vues générées, puis le modèle) |
+| Un prop fidèle à plusieurs vues, ou des vues à retoucher | `image-multivue`, `editer-multivue`, puis `multivue --depuis-tache` |
 | Une image de concept, ou la retoucher | `image-texte`, `image-image` |
 | Modèle trop lourd | `decimer` (pas une nouvelle génération) |
 | Changer matériaux ou couleurs | `retexturer` (pas une nouvelle génération) |
@@ -80,6 +81,8 @@ Retravailler coûte moins cher que régénérer. Corriger le poids ou la texture
 1. `image-texte` : 3 ou 4 variantes du concept, environ 5 crédits l'une (c'est une série : annonce le total et attends l'accord) ;
 2. l'utilisateur choisit une image ;
 3. `image <image choisie> --low-poly` (ou sans `--low-poly`, selon le style).
+
+**Ajoute `--multivue`** quand le dos et les côtés de l'objet comptent (objet vu de tous les côtés, silhouette asymétrique, détails à l'arrière). Une seule image laisse Tripo deviner l'arrière. Avec `--multivue`, il génère d'abord quatre vues (face, gauche, dos, droite) depuis l'image, puis le modèle depuis ces vues. Cela coûte 10 crédits de plus, à annoncer. Les vues sont écrites à côté du modèle (`<nom>_front_view.png`, etc.) : regarde-les avec le modèle. Si une vue est fausse, retouche-la avec `editer-multivue`, puis relance `multivue --depuis-tache` (voir [commandes.md](commandes.md)) plutôt qu'une nouvelle génération complète.
 
 ## Coût
 
@@ -114,7 +117,7 @@ Les modèles P1 coûtent de 30 à 60 crédits, les modèles P2 de 100 à 130.
 | `rigger` | 25 |
 | `animer` | 10 par animation |
 | `image-texte`, `image-image` | 5 à 20 selon le modèle d'image |
-| `image-multivue` | 10 |
+| `image-multivue`, ou `--multivue` sur `image` | 10, en plus du modèle |
 | `editer-multivue` | 5 par vue modifiée |
 | `importer`, `splat`, `profondeur`, `brut` | non publié : vérifie la page de prix, puis le champ `credits` du `.tripo.json` après coup |
 

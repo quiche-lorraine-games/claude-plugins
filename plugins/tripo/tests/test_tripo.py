@@ -551,6 +551,38 @@ class TestCapacites(BaseTest):
         self.ok("multivue", "--depuis-tache", "tache-mv", "--sortie", self.chemin("m.glb"))
         self.assertEqual(self.creation()[1]["inputs"], [{"task_id": "tache-mv"}])
 
+    def test_image_par_multivue(self):
+        res = self.ok("image", self.image("concept.png"), "--multivue", "--faces", "1500",
+                      "--sortie", self.chemin("baril.glb"))
+        creations = [(r["chemin"], json.loads(r["corps"])) for r in self.serveur.requetes
+                     if r["methode"] == "POST" and r["chemin"].startswith("/v3/generation/")]
+        self.assertEqual(creations[0], ("/v3/generation/image-to-multiview", {"input": "file_test_123"}))
+        chemin, corps = creations[1]
+        self.assertEqual(chemin, "/v3/generation/multiview-to-model")
+        self.assertEqual(corps["inputs"], [{"task_id": "tache-1"}], "les vues passent par leur task_id")
+        self.assertEqual(corps["face_limit"], 1500)
+        self.assertEqual(len(creations), 2, "pas de génération image → modèle directe")
+        for vue in ("front", "left", "back", "right"):
+            self.assertTrue(os.path.exists(self.chemin(f"baril_{vue}_view.png")), vue)
+        self.assertIn("Vue écrite", res.stdout)
+        with open(self.chemin("baril.glb"), "rb") as f:
+            self.assertEqual(f.read(4), b"glTF")
+        fiche = self.fiche("baril.tripo.json")
+        self.assertEqual(fiche["type"], "image_to_multiview_to_model")
+        self.assertEqual(fiche["multivue"]["task_id"], "tache-1")
+        self.assertIn("baril_front_view.png", fiche["multivue"]["vues"])
+        self.assertEqual([e["role"] for e in fiche["entrees"]], ["image", "vues"])
+
+    def test_image_par_multivue_a_blanc_et_refus(self):
+        res = self.lancer("image", self.image(), "--multivue", "--sortie", self.chemin("m.glb"), "--a-blanc", cle=None)
+        self.assertEqual(res.returncode, 0, res.stderr)
+        self.assertIn("image-to-multiview", res.stdout)
+        self.assertIn("multiview-to-model", res.stdout)
+        self.assertEqual(self.serveur.requetes, [])
+        res = self.lancer("image", self.image(), "--multivue", "--autofix", "--sortie", self.chemin("m.glb"),
+                          "--a-blanc", cle=None)
+        self.assertEqual(res.returncode, 2)
+
     def test_multivue_sans_face(self):
         res = self.lancer("multivue", "--dos", self.image(), "--sortie", self.chemin("m.glb"))
         self.assertEqual(res.returncode, 2)

@@ -1295,13 +1295,47 @@ def cmd_texte(args):
 
 def cmd_image(args):
     _verifier_sortie(args, ["." + args.format])
+    if args.multivue and args.autofix:
+        raise ErreurTripo(USAGE, "--autofix ne s'applique pas avec --multivue (il vise image → modèle direct).")
     corps = _parametres_generation(args, depuis_image=True)
     if args.autofix:
         corps["enable_image_autofix"] = True
     api, entrees = _contexte(args)
-    corps = {"input": entrees.resoudre(args.chemin, "image"), **corps}
+    image = entrees.resoudre(args.chemin, "image")
+    if args.multivue:
+        return _image_par_multivue(args, api, entrees, image, corps)
+    corps = {"input": image, **corps}
     return executer(args, api, entrees, "/v3/generation/image-to-model", corps, "modele",
                     {"type": "image_to_model"}, _conversion(args))
+
+
+def _image_par_multivue(args, api, entrees, image, parametres):
+    """image --multivue : quatre vues depuis l'image (image-multivue), écrites à côté du modèle pour
+    contrôle, puis le modèle depuis ces vues (multivue --depuis-tache)."""
+    chemin_vues = "/v3/generation/image-to-multiview"
+    if args.a_blanc:
+        _a_blanc(chemin_vues, {"input": image})
+        corps = {"inputs": [{"task_id": "<task_id de image-multivue>"}], **parametres}
+        return executer(args, api, entrees, "/v3/generation/multiview-to-model", corps, "modele")
+    vues_id = creer_tache(api, chemin_vues, {"input": image})
+    dire(f"Tâche des vues créée : {vues_id}")
+    tache_vues = attendre(api, vues_id, args.delai, args.intervalle)
+    verifier_succes(tache_vues)
+    dossier = os.path.dirname(os.path.abspath(args.sortie))
+    vues = []
+    try:
+        for f in telecharger_sorties(tache_vues, args.sortie, "multivue", vues_id, principale_requise=False):
+            dire(f"Vue écrite : {f['fichier']}")
+            vues.append(os.path.relpath(os.path.abspath(f["fichier"]), dossier))
+    except ErreurTripo as exc:
+        # Les vues ne servent qu'au contrôle : le modèle part de leur task_id, sans les retélécharger.
+        signaler(f"Vues non téléchargées ({exc.message}) ; le modèle est généré quand même.")
+    entrees.liste.append({"role": "vues", "task_id": vues_id})
+    corps = {"inputs": [{"task_id": vues_id}], **parametres}
+    meta = {"type": "image_to_multiview_to_model",
+            "multivue": {"task_id": vues_id, "credits": tache_vues.get("credits_consumed"), "vues": vues}}
+    return executer(args, api, entrees, "/v3/generation/multiview-to-model", corps, "modele", meta,
+                    _conversion(args))
 
 
 def cmd_multivue(args):
@@ -1826,6 +1860,9 @@ def analyseur():
     i = commande("image", cmd_image, "modèle 3D depuis une image (fichier, URL, file_token ou task_id)")
     i.add_argument("chemin")
     i.add_argument("--autofix", action="store_true", help="correction automatique de l'image (enable_image_autofix)")
+    i.add_argument("--multivue", action="store_true",
+                   help="passe par quatre vues (image-multivue, +10 crédits) avant le modèle : dos et côtés "
+                        "plus fidèles ; les vues sont écrites à côté du modèle")
     _generation(i, depuis_image=True)
     m = commande("multivue", cmd_multivue, "modèle 3D depuis 1 à 4 vues (face, gauche, dos, droite)")
     m.add_argument("--face")
