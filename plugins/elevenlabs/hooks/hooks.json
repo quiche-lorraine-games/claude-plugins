@@ -1,0 +1,16 @@
+{
+  "hooks": {
+    "SessionStart": [
+      {
+        "matcher": "startup|clear|compact",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "[ -n \"${ELEVENLABS_API_KEY:-}\" ] || echo \"Plugin elevenlabs actif, mais ELEVENLABS_API_KEY n'est pas définie : la génération audio (voix, bruitages, musique) est indisponible (voir le README du plugin elevenlabs).\"",
+            "timeout": 5
+          }
+        ]
+      }
+    ]
+  }
+}
