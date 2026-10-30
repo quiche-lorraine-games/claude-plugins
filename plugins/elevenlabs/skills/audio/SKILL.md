@@ -195,7 +195,7 @@ Décris le résultat à l'utilisateur en une ou deux lignes (valeurs et écarts)
 
 - Le fichier doit être sous la racine du projet Godot (celle qui contient `project.godot`), dans le dossier prévu par les conventions. Passe directement le bon chemin à `--sortie`.
 - Garde la fiche `.elevenlabs.json` à côté du son et commite les deux, avec le `.import` que Godot va créer. Ne commite jamais `.godot/`.
-- **Boucle** : un son généré avec `--boucle` ne boucle dans Godot que si l'import le dit. Dans le `.import` : pour un WAV, `edit/loop_mode=1` (boucle avant) ; pour un MP3 ou un Ogg, `loop=true`. Ou dans le dock Import de l'éditeur.
+- **Boucle** : un son généré avec `--boucle` ne boucle dans Godot que si l'import le dit. Dans le `.import` : pour un WAV, `edit/loop_mode=2` (boucle avant ; `0` lit le WAV, `1` désactive la boucle) ; pour un MP3 ou un Ogg, `loop=true`. Ou dans le dock Import de l'éditeur. Après une modification à la main du `.import`, efface `.godot/imported/<son>.wav-*` : sinon Godot garde l'ancien import.
 - Voix et musiques : préfère le MP3 (léger). Bruitages courts et fréquents : le WAV (pas de décodage, latence minimale).
 - Les réglages d'import propres au projet (compression, bus, normalisation) viennent de ses conventions.
 
