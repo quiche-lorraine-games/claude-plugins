@@ -37,9 +37,11 @@ API_BASE_DEFAUT = "https://api.elevenlabs.io"
 MODELE_PAROLE_DEFAUT = "eleven_multilingual_v2"
 MODELE_DIALOGUE_DEFAUT = "eleven_v3"
 MODELE_BRUITAGE_DEFAUT = "eleven_text_to_sound_v2"
-# Le PCM des bruitages est stéréo entrelacé (constaté sur eleven_text_to_sound_v2, octobre 2026) ;
-# celui de la parole, mono. Enveloppé en mono, un bruitage durait le double, une octave trop bas.
+# Le PCM des bruitages et de la musique est stéréo entrelacé (constaté sur eleven_text_to_sound_v2
+# et music_v1, octobre 2026) ; celui de la parole, mono. Enveloppé en mono, un bruitage ou un
+# morceau durait le double, une octave trop bas.
 CANAUX_PCM_BRUITAGE = 2
+CANAUX_PCM_MUSIQUE = 2
 MODELES_BRUITAGE = ("eleven_text_to_sound_v2", "eleven_text_to_sound_v3")
 MODELE_MUSIQUE_DEFAUT = "music_v1"
 MODELES_MUSIQUE = ("music_v1", "music_v2", "music_v2_5")
@@ -1258,7 +1260,8 @@ def cmd_musique(args):
     fiche = fiche_de_base("POST /v1/music", prompt=args.prompt, modele=args.modele, format=fmt,
                           plan=entree_pour_fiche(args.plan, args.sortie) if args.plan else None,
                           parametres={k: v for k, v in corps.items() if k not in ("prompt", "model_id")})
-    return _generer(args, "/v1/music", corps, {"output_format": fmt}, fiche, wav_hz)
+    return _generer(args, "/v1/music", corps, {"output_format": fmt}, fiche, wav_hz,
+                    canaux=CANAUX_PCM_MUSIQUE)
 
 
 def cmd_plan_musique(args):
