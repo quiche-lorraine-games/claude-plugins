@@ -37,8 +37,8 @@ def mp3_factice(trames=10):
     return b"ID3\x03\x00\x00\x00\x00\x00\x00" + trame * trames
 
 
-def pcm_factice(secondes=0.5, frequence=44100, amplitude=16384):
-    n = int(secondes * frequence)
+def pcm_factice(secondes=0.5, frequence=44100, amplitude=16384, canaux=1):
+    n = int(secondes * frequence) * canaux
     return struct.pack(f"<{n}h", *([amplitude, -amplitude] * (n // 2) + [0] * (n % 2)))
 
 
@@ -176,7 +176,10 @@ class FauxEleven(BaseHTTPRequestHandler):
         fmt = requete.get("output_format", ["mp3_44100_128"])[0]
 
         def audio():
-            return pcm_factice() if fmt.startswith("pcm") else mp3_factice()
+            if not fmt.startswith("pcm"):
+                return mp3_factice()
+            # Comme l'API : les bruitages en stéréo, la parole en mono.
+            return pcm_factice(canaux=2 if chemin == "/v1/sound-generation" else 1)
 
         type_audio = "audio/mpeg" if fmt.startswith("mp3") else "application/octet-stream"
         cout = {"character-cost": "18"}
@@ -413,6 +416,10 @@ class TestDialogueEtSons(BaseTest):
         self.assertEqual(json.loads(req["corps"]), {"text": "wooden door creak", "model_id": "eleven_text_to_sound_v2",
                                                     "duration_seconds": 2.0, "loop": True})
         self.assertEqual(req["requete"]["output_format"], ["pcm_44100"])
+        # Le PCM stéréo de l'API reste stéréo : la durée est la bonne, pas le double.
+        controle = self.fiche("porte.elevenlabs.json")["controle"]
+        self.assertEqual((controle["format"], controle["frequence_hz"], controle["canaux"]), ("wav", 44100, 2))
+        self.assertAlmostEqual(controle["duree_s"], 0.5, places=2)
         res = self.lancer("bruitage", "x", "--duree", "31", "--sortie", "b.mp3")
         self.assertEqual(res.returncode, 2)
 

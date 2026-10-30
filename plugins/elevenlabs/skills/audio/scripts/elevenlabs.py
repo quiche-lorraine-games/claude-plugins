@@ -37,6 +37,9 @@ API_BASE_DEFAUT = "https://api.elevenlabs.io"
 MODELE_PAROLE_DEFAUT = "eleven_multilingual_v2"
 MODELE_DIALOGUE_DEFAUT = "eleven_v3"
 MODELE_BRUITAGE_DEFAUT = "eleven_text_to_sound_v2"
+# Le PCM des bruitages est stéréo entrelacé (constaté sur eleven_text_to_sound_v2, octobre 2026) ;
+# celui de la parole, mono. Enveloppé en mono, un bruitage durait le double, une octave trop bas.
+CANAUX_PCM_BRUITAGE = 2
 MODELES_BRUITAGE = ("eleven_text_to_sound_v2", "eleven_text_to_sound_v3")
 MODELE_MUSIQUE_DEFAUT = "music_v1"
 MODELES_MUSIQUE = ("music_v1", "music_v2", "music_v2_5")
@@ -375,10 +378,10 @@ def multipart(champs):
 # ---------------------------------------------------------------------------
 
 def envelopper_pcm(octets, frequence, canaux=1, bits=16):
-    """PCM brut (s16le, ce que renvoie l'API pour pcm_*) → fichier WAV."""
-    if len(octets) % 2:
-        octets = octets[:-1]
+    """PCM brut (s16le entrelacé, ce que renvoie l'API pour pcm_*) → fichier WAV."""
     bloc = canaux * bits // 8
+    if len(octets) % bloc:
+        octets = octets[:len(octets) - len(octets) % bloc]
     return (b"RIFF" + struct.pack("<I", 36 + len(octets)) + b"WAVE"
             + b"fmt " + struct.pack("<IHHIIHH", 16, 1, canaux, frequence, frequence * bloc, bloc, bits)
             + b"data" + struct.pack("<I", len(octets)) + octets)
@@ -740,13 +743,13 @@ def _meta_reponse(rep):
     return meta
 
 
-def finaliser_audio(args, sortie, octets, wav_hz, fiche, rep=None, json_attendu=False):
+def finaliser_audio(args, sortie, octets, wav_hz, fiche, rep=None, json_attendu=False, canaux=1):
     if rep is not None and not json_attendu:
         type_contenu = (rep.entete("Content-Type") or "").lower()
         if type_contenu.startswith("application/json"):
             raise ErreurEleven(ERREUR, f"L'API a renvoyé du JSON au lieu d'audio : {octets[:200]!r}")
     if wav_hz:
-        octets = envelopper_pcm(octets, wav_hz)
+        octets = envelopper_pcm(octets, wav_hz, canaux)
     _ecrire_binaire(sortie, octets)
     controle = analyser_audio(sortie)
     if rep is not None:
@@ -1115,7 +1118,7 @@ def _ecrire_alignement(sortie, alignement, texte, voice_segments=None):
     return chemin
 
 
-def _generer(args, chemin, corps, params, fiche, wav_hz, estimation=None, horodatage=False, texte=None):
+def _generer(args, chemin, corps, params, fiche, wav_hz, estimation=None, horodatage=False, texte=None, canaux=1):
     if args.a_blanc:
         return _a_blanc("POST", chemin, corps, params, estimation)
     if estimation:
@@ -1127,11 +1130,11 @@ def _generer(args, chemin, corps, params, fiche, wav_hz, estimation=None, horoda
         alignement = _ecrire_alignement(args.sortie, donnees.get("alignment"), texte, donnees.get("voice_segments"))
         if alignement:
             fiche["sorties"] = [relatif_a_fiche(alignement, args.sortie)]
-        finaliser_audio(args, args.sortie, octets, wav_hz, fiche, rep, json_attendu=True)
+        finaliser_audio(args, args.sortie, octets, wav_hz, fiche, rep, json_attendu=True, canaux=canaux)
         if alignement:
             dire(f"  Alignement : {alignement}")
         return OK
-    finaliser_audio(args, args.sortie, rep.corps, wav_hz, fiche, rep)
+    finaliser_audio(args, args.sortie, rep.corps, wav_hz, fiche, rep, canaux=canaux)
     return OK
 
 
@@ -1223,7 +1226,8 @@ def cmd_bruitage(args):
     _ajouter_params(corps, args.param)
     fiche = fiche_de_base("POST /v1/sound-generation", prompt=args.prompt, modele=args.modele, format=fmt,
                           parametres={k: v for k, v in corps.items() if k not in ("text", "model_id")})
-    code = _generer(args, "/v1/sound-generation", corps, {"output_format": fmt}, fiche, wav_hz)
+    code = _generer(args, "/v1/sound-generation", corps, {"output_format": fmt}, fiche, wav_hz,
+                    canaux=CANAUX_PCM_BRUITAGE)
     if not args.a_blanc and args.duree:
         duree = fiche.get("controle", {}).get("duree_s")
         if duree and abs(duree - args.duree) > max(0.25, args.duree * 0.1):
