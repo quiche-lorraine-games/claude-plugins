@@ -178,8 +178,8 @@ class FauxEleven(BaseHTTPRequestHandler):
         def audio():
             if not fmt.startswith("pcm"):
                 return mp3_factice()
-            # Comme l'API : les bruitages en stéréo, la parole en mono.
-            return pcm_factice(canaux=2 if chemin == "/v1/sound-generation" else 1)
+            # Comme l'API : les bruitages et la musique en stéréo, la parole en mono.
+            return pcm_factice(canaux=2 if chemin in ("/v1/sound-generation", "/v1/music") else 1)
 
         type_audio = "audio/mpeg" if fmt.startswith("mp3") else "application/octet-stream"
         cout = {"character-cost": "18"}
@@ -434,6 +434,9 @@ class TestDialogueEtSons(BaseTest):
         self.assertEqual(req["requete"]["output_format"], ["pcm_44100"])
         self.assertEqual(json.loads(req["corps"])["music_length_ms"], 30000)
         self.assertEqual(self.fiche("taverne.elevenlabs.json")["song_id"], "chanson1")
+        # Le PCM stéréo de la musique reste stéréo, comme celui des bruitages.
+        controle = self.fiche("taverne.elevenlabs.json")["controle"]
+        self.assertEqual((controle["canaux"], round(controle["duree_s"], 2)), (2, 0.5))
 
         self.ok(self.lancer("plan-musique", "epic boss fight", "--sortie", "plan.json"))
         self.ok(self.lancer("musique", "--plan", "plan.json", "--sortie", "boss.mp3"))
