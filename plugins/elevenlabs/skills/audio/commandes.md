@@ -13,7 +13,7 @@ Les capacités de l'API ElevenLabs utiles à un jeu, une sous-commande par endpo
 | Extension | `output_format` demandé | Remarque |
 |---|---|---|
 | `.mp3` | `mp3_44100_128` | toutes les offres |
-| `.wav` | `pcm_44100`, enveloppé en WAV par le script | PCM 16 bits mono. `pcm_44100` peut demander une offre supérieure : passe `--format pcm_22050` ou `pcm_24000` |
+| `.wav` | `pcm_44100`, enveloppé en WAV par le script | PCM 16 bits : mono pour la parole, stéréo pour les bruitages. `pcm_44100` peut demander une offre supérieure : passe `--format pcm_22050` ou `pcm_24000` |
 | `.opus`, `.pcm` | `opus_48000_96`, `pcm_44100` | Godot ne les importe pas |
 
 `--format` impose un autre format (`mp3_44100_192`, `pcm_48000`, `wav_44100`…), à condition qu'il corresponde à l'extension. La musique et la séparation de pistes n'ont pas de format `wav_*` : avec une sortie `.wav`, le script demande du PCM et l'enveloppe.
