@@ -34,7 +34,7 @@ Premiers jets : eleven_flash_v2_5 (moitié prix), puis le modèle du casting pou
 
 ## Niveaux et boucles
 - Le mixage se fait dans les bus audio de Godot ; ne pas régénérer pour une question de volume.
-- Sons en boucle : générer avec --boucle, puis edit/loop_mode=1 (WAV) ou loop=true (MP3) dans le .import.
+- Sons en boucle : générer avec --boucle, puis edit/loop_mode=2 (WAV, boucle avant) ou loop=true (MP3) dans le .import.
 
 ## Godot
 - Binaire : godot   (ou chemin complet, ex. /opt/godot/godot)
