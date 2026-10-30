@@ -14,6 +14,11 @@
       "name": "tripo",
       "source": "./plugins/tripo",
       "description": "Toute l'API Tripo 3D (génération, retexture, réduction des faces, conversion, rig et animation…), avec rangement et vérification de l'import dans un projet Godot."
+    },
+    {
+      "name": "elevenlabs",
+      "source": "./plugins/elevenlabs",
+      "description": "L'API ElevenLabs pour l'audio d'un jeu (voix de PNJ, dialogues, conception de voix, bruitages, musique, sous-titres), avec rangement et vérification de l'import dans un projet Godot."
     }
   ]
 }

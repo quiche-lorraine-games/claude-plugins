@@ -1,0 +1,17 @@
+{
+  "name": "elevenlabs",
+  "description": "L'API ElevenLabs pour l'audio d'un jeu, avec rangement et vérification de l'import dans un projet Godot : répliques et dialogues de PNJ, casting et conception de voix, bruitages, musique, changement de voix, isolation, séparation de pistes, transcription et sous-titres ; contrôle de la durée, du format et des niveaux ; traçabilité de chaque son.",
+  "author": {
+    "name": "Quiche Lorraine Games"
+  },
+  "repository": "https://github.com/quiche-lorraine-games/claude-plugins",
+  "keywords": [
+    "elevenlabs",
+    "audio",
+    "voix",
+    "tts",
+    "bruitages",
+    "musique",
+    "godot"
+  ]
+}
