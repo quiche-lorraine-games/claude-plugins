@@ -1,0 +1,18 @@
+{
+  "name": "steam",
+  "description": "Steam pour un jeu Godot, en français : référentiel de sortie tiré de la documentation Steamworks (visuels, page boutique, calendrier, prix et réductions, démo et Next Fest, accès anticipé, Steam Deck) et intégration de Steamworks avec GodotSteam (autoload d'initialisation, succès, Steam Cloud, clavier virtuel, présence, overlay, classements, DLC, lobbies et SteamMultiplayerPeer).",
+  "author": {
+    "name": "Quiche Lorraine Games"
+  },
+  "repository": "https://github.com/quiche-lorraine-games/claude-plugins",
+  "keywords": [
+    "steam",
+    "steamworks",
+    "boutique",
+    "sortie",
+    "next-fest",
+    "steam-deck",
+    "godot",
+    "godotsteam"
+  ]
+}
