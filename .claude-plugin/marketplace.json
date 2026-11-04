@@ -19,6 +19,11 @@
       "name": "elevenlabs",
       "source": "./plugins/elevenlabs",
       "description": "L'API ElevenLabs pour l'audio d'un jeu (voix de PNJ, dialogues, conception de voix, bruitages, musique, sous-titres), avec rangement et vérification de l'import dans un projet Godot."
+    },
+    {
+      "name": "steam",
+      "source": "./plugins/steam",
+      "description": "Référentiel en français pour préparer la sortie d'un jeu sur Steam (visuels, page boutique, calendrier, prix et réductions, démo et Next Fest, accès anticipé, Steam Deck, succès et Steam Cloud dans Godot), tiré de la documentation Steamworks."
     }
   ]
 }

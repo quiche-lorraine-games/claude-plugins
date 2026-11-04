@@ -1,0 +1,17 @@
+{
+  "name": "steam",
+  "description": "Référentiel en français pour préparer la sortie d'un jeu sur Steam, tiré de la documentation Steamworks : visuels aux tailles exactes, page boutique, calendrier et revue, wishlists et visibilité, prix et réductions, démo, Playtest et Next Fest, accès anticipé, Steam Deck, succès et Steam Cloud dans Godot, mises à jour ; avec un gabarit de rétroplanning.",
+  "author": {
+    "name": "Quiche Lorraine Games"
+  },
+  "repository": "https://github.com/quiche-lorraine-games/claude-plugins",
+  "keywords": [
+    "steam",
+    "steamworks",
+    "boutique",
+    "sortie",
+    "next-fest",
+    "steam-deck",
+    "godot"
+  ]
+}
