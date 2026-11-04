@@ -68,6 +68,9 @@ Pour un même jeu sur plusieurs systèmes : une racine principale en *Cross-Plat
 
 ### Intégration
 
+Le code (autoload prêt à copier, recettes par fonctionnalité) est dans le skill `steam:godotsteam` ; cette section en résume l'essentiel.
+
+
 - **GodotSteam** est l'extension la plus utilisée pour appeler Steamworks depuis GDScript (module ou GDExtension). Les fonctions Steamworks y gardent leur nom en *camelCase* sur le singleton `Steam`.
 - **Initialisation** : `Steam.steamInitEx(app_id, embed_callbacks)` dans un autoload, au démarrage. Elle renvoie un dictionnaire `{status, verbal}` : `status` vaut `STEAM_API_INIT_RESULT_OK` en cas de succès, sinon `verbal` explique l'échec. L'App ID et l'option *Embed Callbacks* peuvent aussi se régler dans *Project Settings* → *Steam* → *Initialization* ; on appelle alors `Steam.steamInitEx()` sans argument.
 - **Rappels** : sans *Embed Callbacks*, appeler `Steam.run_callbacks()` dans `_process`, sinon les résultats asynchrones n'arrivent jamais. GodotSteam signale que les rappels intégrés étaient cassés dans ses versions 3.29 et 4.14 : sur ces versions, appeler `run_callbacks()` soi-même.

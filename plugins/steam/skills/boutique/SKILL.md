@@ -34,6 +34,7 @@ Référentiel tiré de la documentation Steamworks de Valve, pour préparer et c
 | Une mise à jour, une annonce, un événement après la sortie | [apres-la-sortie.md](apres-la-sortie.md) |
 | Le rétroplanning complet d'une sortie | [gabarits/plan-de-sortie.md](gabarits/plan-de-sortie.md) |
 | Retrouver une page Steamworks citée | [sources.md](sources.md) |
+| Écrire le code Steamworks d'un jeu Godot (GodotSteam) | le skill `steam:godotsteam` |
 
 ## Les règles à ne jamais oublier
 

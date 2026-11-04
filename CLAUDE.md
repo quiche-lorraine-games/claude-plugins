@@ -18,7 +18,7 @@ Plugins actuels :
 - `plugins/game-design/` : référentiel de game design. Pour modifier ses fiches, suivre [plugins/game-design/CONTRIBUER.md](plugins/game-design/CONTRIBUER.md).
 - `plugins/tripo/` : toute l'API Tripo 3D (génération, traitement, animation de modèles) et import dans Godot. Script `skills/generer/scripts/tripo.py` (bibliothèque standard uniquement) ; tests : `python3 -m unittest discover -s plugins/tripo/tests`.
 - `plugins/elevenlabs/` : l'API ElevenLabs pour l'audio d'un jeu (voix, dialogues, bruitages, musique, transcription) et import dans Godot. Script `skills/audio/scripts/elevenlabs.py` (bibliothèque standard uniquement) ; tests : `python3 -m unittest discover -s plugins/elevenlabs/tests`.
-- `plugins/steam/` : référentiel de préparation de la sortie sur Steam (skill `boutique`), tiré de la documentation Steamworks. Chaque fiche date son relevé et cite ses pages : en la modifiant, relire les sources et mettre la date à jour.
+- `plugins/steam/` : Steam pour un jeu Godot. Skill `boutique` : référentiel de préparation de la sortie, tiré de la documentation Steamworks. Skill `godotsteam` : intégration de Steamworks avec GodotSteam, avec un autoload `gabarits/steamworks.gd`. Chaque fiche date son relevé et cite ses pages : en la modifiant, relire les sources et mettre la date à jour.
 
 ## Règles
 

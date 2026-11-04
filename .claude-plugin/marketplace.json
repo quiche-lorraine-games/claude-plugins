@@ -23,7 +23,7 @@
     {
       "name": "steam",
       "source": "./plugins/steam",
-      "description": "Référentiel en français pour préparer la sortie d'un jeu sur Steam (visuels, page boutique, calendrier, prix et réductions, démo et Next Fest, accès anticipé, Steam Deck, succès et Steam Cloud dans Godot), tiré de la documentation Steamworks."
+      "description": "Steam pour un jeu Godot : référentiel de sortie tiré de la documentation Steamworks (page boutique, calendrier, prix, démo et Next Fest, Steam Deck) et intégration de Steamworks avec GodotSteam (succès, Steam Cloud, clavier virtuel, présence, classements, DLC, multijoueur)."
     }
   ]
 }

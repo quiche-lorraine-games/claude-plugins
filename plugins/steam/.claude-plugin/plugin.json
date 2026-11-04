@@ -1,6 +1,6 @@
 {
   "name": "steam",
-  "description": "Référentiel en français pour préparer la sortie d'un jeu sur Steam, tiré de la documentation Steamworks : visuels aux tailles exactes, page boutique, calendrier et revue, wishlists et visibilité, prix et réductions, démo, Playtest et Next Fest, accès anticipé, Steam Deck, succès et Steam Cloud dans Godot, mises à jour ; avec un gabarit de rétroplanning.",
+  "description": "Steam pour un jeu Godot, en français : référentiel de sortie tiré de la documentation Steamworks (visuels, page boutique, calendrier, prix et réductions, démo et Next Fest, accès anticipé, Steam Deck) et intégration de Steamworks avec GodotSteam (autoload d'initialisation, succès, Steam Cloud, clavier virtuel, présence, overlay, classements, DLC, lobbies et SteamMultiplayerPeer).",
   "author": {
     "name": "Quiche Lorraine Games"
   },
@@ -12,6 +12,7 @@
     "sortie",
     "next-fest",
     "steam-deck",
-    "godot"
+    "godot",
+    "godotsteam"
   ]
 }
