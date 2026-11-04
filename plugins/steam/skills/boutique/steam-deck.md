@@ -75,7 +75,7 @@ Le badge ne change pas la disponibilité du jeu, seulement sa présentation. Ste
 - **Taille du texte** : le critère porte sur la hauteur du plus petit caractère affiché, pas sur la taille de police. Avec une taille de base de 1920 × 1080 et `canvas_items`, tout est réduit d'environ un tiers en 1280 × 800 : une police de 18 px n'en fait plus que 12. Point de départ, à vérifier : lance le jeu en 1280 × 800, fais une capture, et mesure les plus petites lettres (minuscules comprises).
 - **Manette** : toutes les actions dans l'`InputMap` avec une entrée manette ; navigation de toute l'interface au focus (`focus_neighbor_*`, `grab_focus()` sur le premier bouton de chaque écran).
 - **Glyphes** : changer d'icônes selon le dernier périphérique utilisé (`InputEventJoypadButton` contre `InputEventKey`/`InputEventMouseButton`), avec une petite tolérance pour la souris (entrée mixte).
-- **Clavier virtuel** : appeler à l'ouverture d'un champ l'API Steamworks `ISteamUtils::ShowFloatingGamepadTextInput` (ou `ShowGamepadTextInput`). GodotSteam expose les fonctions Steamworks sous des noms en *camelCase* sur le singleton `Steam` (ex. `Steam.showFloatingGamepadTextInput(...)`) : vérifie le nom et la signature exacts dans la documentation de la version utilisée, qui n'a pas pu être relue pour cette fiche. Il en va de même pour la détection de la Deck, dont l'API Steamworks a pu évoluer avec la Steam Machine.
+- **Clavier virtuel** : à l'ouverture d'un champ, `Steam.showFloatingGamepadTextInput(mode, x, y, largeur, hauteur)` (le clavier envoie des touches, la zone du champ reste visible) ou `Steam.showGamepadTextInput(mode, mode_ligne, description, longueur_max, texte_initial)` (le texte revient par un signal). `Steam.isSteamRunningOnSteamDeck()` permet d'adapter les réglages par défaut sur Deck, sans en interdire aucun ailleurs.
 - **Performances** : mesurer en 1280 × 800 avec les réglages par défaut ; préférer le moteur de rendu *Forward+* ou *Mobile* selon les mesures, et prévoir des préréglages graphiques.
 - **Mise en veille** : la Deck suspend le jeu ; ne pas compter sur une horloge murale continue pour la logique, et gérer la perte de focus (`NOTIFICATION_APPLICATION_FOCUS_OUT`).
 
@@ -109,4 +109,4 @@ Le badge ne change pas la disponibilité du jeu, seulement sa présentation. Ste
 
 - [Steam Deck and Steam Machine Compatibility Review](https://partner.steamgames.com/doc/steamdeck/compat)
 - [Getting your game ready for Steam Deck and Steam Machine](https://partner.steamgames.com/doc/steamdeck/recommendations)
-- [GodotSteam](https://godotsteam.com/) (documentation de l'extension Steamworks pour Godot)
+- GodotSteam, classe [Utils](https://godotsteam.com/classes/utils/) (clavier virtuel, détection de la Deck)

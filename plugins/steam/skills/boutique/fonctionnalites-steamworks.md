@@ -68,9 +68,13 @@ Pour un même jeu sur plusieurs systèmes : une racine principale en *Cross-Plat
 
 ### Intégration
 
-- **GodotSteam** est l'extension la plus utilisée pour appeler Steamworks depuis GDScript (module, GDExtension ou greffon). Les fonctions Steamworks y gardent leur nom en *camelCase* sur le singleton `Steam` (`setAchievement`, `storeStats`…). Vérifie les noms exacts dans la documentation de la version installée ; elle n'a pas pu être relue pour cette fiche.
-- Appeler la boucle de rappels de Steam à chaque image (dans `_process` d'un autoload), sinon les résultats asynchrones n'arrivent jamais.
-- Pendant le développement, hors de Steam, l'App ID se donne par un fichier `steam_appid.txt` à côté de l'exécutable (ou par la variable d'environnement `SteamAppId`). **Ne livre pas `steam_appid.txt` dans le build envoyé à Steam.**
+- **GodotSteam** est l'extension la plus utilisée pour appeler Steamworks depuis GDScript (module ou GDExtension). Les fonctions Steamworks y gardent leur nom en *camelCase* sur le singleton `Steam`.
+- **Initialisation** : `Steam.steamInitEx(app_id, embed_callbacks)` dans un autoload, au démarrage. Elle renvoie un dictionnaire `{status, verbal}` : `status` vaut `STEAM_API_INIT_RESULT_OK` en cas de succès, sinon `verbal` explique l'échec. L'App ID et l'option *Embed Callbacks* peuvent aussi se régler dans *Project Settings* → *Steam* → *Initialization* ; on appelle alors `Steam.steamInitEx()` sans argument.
+- **Rappels** : sans *Embed Callbacks*, appeler `Steam.run_callbacks()` dans `_process`, sinon les résultats asynchrones n'arrivent jamais. GodotSteam signale que les rappels intégrés étaient cassés dans ses versions 3.29 et 4.14 : sur ces versions, appeler `run_callbacks()` soi-même.
+- **App ID en développement** : passé à `steamInitEx` (GodotSteam règle alors les variables d'environnement `SteamAppId` et `SteamGameId`), ou par un fichier `steam_appid.txt` à côté de l'exécutable. **Ne livre pas `steam_appid.txt` dans le build envoyé à Steam** (Valve le déconseille, et il fausse `restartAppIfNecessary`).
+- **Fichiers à livrer** : la bibliothèque de GodotSteam (`godotsteam.dll`, `libgodotsteam.so` ou `libgodotsteam.dylib`) et celle de Steam (`steam_api64.dll` sur Windows 64 bits, `libsteam_api.so` sur Linux, prise dans le dossier de la bonne architecture), à côté de l'exécutable.
+- **Succès** : `Steam.setAchievement("NOM_API")`, puis `Steam.storeStats()` ; sans `storeStats()`, le succès est enregistré mais la notification ne s'affiche pas. Progression : `Steam.indicateAchievementProgress(...)`.
+- **Langue** : `Steam.getCurrentGameLanguage()`. **Overlay vers la page du jeu** : `Steam.activateGameOverlayToStore(app_id)`.
 - Teste sur un build lancé par Steam (branche bêta protégée par mot de passe), pas seulement depuis l'éditeur.
 
 ### Sauvegardes Godot et Auto-Cloud
@@ -116,7 +120,8 @@ L'API `GetCurrentGameLanguage` donne la langue choisie par le joueur dans Steam 
 - [ ] Quotas Steam Cloud réglés, chemins Auto-Cloud déclarés en *Cross-Platform* avec les *Root Overrides*, publiés
 - [ ] Réglages graphiques exclus de la synchronisation
 - [ ] Dossier `user://` stable (`use_custom_user_dir`) fixé avant la sortie
-- [ ] Boucle de rappels Steam appelée à chaque image
+- [ ] `steamInitEx` vérifié au démarrage, rappels activés (*Embed Callbacks* ou `run_callbacks()` à chaque image)
+- [ ] Bibliothèques GodotSteam et Steam API livrées avec l'exécutable
 - [ ] Pas de `steam_appid.txt` dans le build envoyé
 - [ ] Testé sur un build lancé par Steam, sur deux machines pour Steam Cloud
 
@@ -134,4 +139,4 @@ L'API `GetCurrentGameLanguage` donne la langue choisie par le joueur dans Steam 
 - [Localization and Languages](https://partner.steamgames.com/doc/store/localization)
 - [Review Process](https://partner.steamgames.com/doc/store/review_process)
 - [Godot, File paths in Godot projects](https://docs.godotengine.org/en/stable/tutorials/io/data_paths.html) (chemins de `user://`)
-- [GodotSteam](https://godotsteam.com/)
+- GodotSteam : [Initializing](https://godotsteam.com/tutorials/initializing/), [Exporting and Shipping](https://godotsteam.com/tutorials/exporting_shipping/), [Stats and Achievements](https://godotsteam.com/tutorials/stats_achievements/), classes [Main](https://godotsteam.com/classes/main/), [User Stats](https://godotsteam.com/classes/user_stats/), [Apps](https://godotsteam.com/classes/apps/), [Friends](https://godotsteam.com/classes/friends/)

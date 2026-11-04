@@ -53,4 +53,4 @@ Les fiches s'appuient sur la version anglaise des pages, la plus à jour.
 ## Hors Valve
 
 - [Godot, File paths in Godot projects](https://docs.godotengine.org/en/stable/tutorials/io/data_paths.html) : chemins de `user://` selon le système.
-- [GodotSteam](https://godotsteam.com/) : extension Steamworks pour Godot. Sa documentation n'a pas pu être relue pendant l'écriture de ces fiches (domaine bloqué) ; les noms de fonctions cités sont ceux de l'API Steamworks, à vérifier dans GodotSteam.
+- [GodotSteam](https://godotsteam.com/) : extension Steamworks pour Godot, documentation relue le 04/11/2026 : tutoriels [Initializing](https://godotsteam.com/tutorials/initializing/), [Exporting and Shipping](https://godotsteam.com/tutorials/exporting_shipping/), [Stats and Achievements](https://godotsteam.com/tutorials/stats_achievements/) ; classes [Main](https://godotsteam.com/classes/main/), [Utils](https://godotsteam.com/classes/utils/), [User Stats](https://godotsteam.com/classes/user_stats/), [Apps](https://godotsteam.com/classes/apps/), [Friends](https://godotsteam.com/classes/friends/).

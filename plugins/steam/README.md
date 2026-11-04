@@ -57,5 +57,5 @@ skills/boutique/
 - Les fiches distinguent les **règles de Valve**, ses **conseils** et les **points de départ**.
 - Valve change ses règles (tailles des capsules en août 2024, délai entre réductions passé de 28 à 30 jours en 2023, Steam Machine ajoutée aux critères Steam Deck). Le skill demande à l'agent de rouvrir la page source avant une décision qui engage, et de signaler tout écart.
 - Pour mettre à jour une fiche : relire ses sources, corriger, changer la date de relevé dans son « En bref » et dans [SKILL.md](skills/boutique/SKILL.md).
-- La documentation de GodotSteam n'a pas pu être relue (domaine bloqué pendant l'écriture) : les fiches citent les noms de l'API Steamworks et demandent de vérifier ceux de GodotSteam.
+- Les fonctions GodotSteam citées (initialisation, rappels, succès, clavier virtuel, overlay) ont été vérifiées dans sa documentation le même jour. Pour la relire depuis une session cloud, autoriser aussi `godotsteam.com`.
 - Pour lire la documentation Steamworks depuis une session cloud, ajouter `partner.steamgames.com` aux domaines autorisés de l'environnement.

@@ -141,7 +141,7 @@ La notification de sortie de démo aux wishlists est indépendante du festival :
 
 - **Godot** : une même base de code pour le jeu et la démo, avec un *feature tag* d'export (ex. `demo`) testé par `OS.has_feature("demo")` pour limiter le contenu, et un préréglage d'export par App ID.
 - Sauvegarde partagée : enregistrer la progression de la démo dans un format que le jeu complet sait relire, au même chemin `user://`, et régler *Shared cloud APP ID* (voir [fonctionnalites-steamworks.md](fonctionnalites-steamworks.md)).
-- Écran « Merci d'avoir joué » à la fin de la démo, avec le lien vers la page du jeu par l'overlay Steam (API Steamworks `ISteamFriends::ActivateGameOverlayToStore`, exposée par GodotSteam sur le singleton `Steam` ; vérifie le nom exact dans sa documentation).
+- Écran « Merci d'avoir joué » à la fin de la démo, avec le lien vers la page du jeu par l'overlay Steam (GodotSteam : `Steam.activateGameOverlayToStore(app_id_du_jeu)`).
 
 ## Voir aussi
 
