@@ -50,7 +50,7 @@ claude plugin install uthana@quiche-lorraine-games
 3. **Environnement cloud** (menu de l'environnement dans la barre de titre de la session, puis *Edit*) :
    - **accès réseau** : ajouter **`uthana.com`** aux domaines autorisés. C'est le seul hôte utilisé : l'API (`/graphql`) et les téléchargements (`/motion/…`) y sont tous les deux ;
    - **clé** : l'enregistrer en variable d'environnement **`UTHANA_API_KEY`**, puis ouvrir une nouvelle session. Ne jamais la coller dans le chat ni la commiter.
-   - Variante, sans redémarrer la session : un *Network secret* pour `uthana.com`, de type **nom d'utilisateur et mot de passe** (clé en nom d'utilisateur, mot de passe vide), que le proxy ajoute aux requêtes. Le script exige alors quand même une variable `UTHANA_API_KEY`, à régler sur une valeur factice (`proxy-injected`) que le proxy remplace. Un secret enregistré en jeton *Bearer* est refusé par Uthana (`invalid_token`), qui réserve ce format aux connexions OAuth.
+   - Un *Network secret* ne convient pas : Uthana attend la clé en authentification Basic avec un mot de passe vide, que le formulaire des secrets refuse, et un secret enregistré en jeton *Bearer* est refusé par Uthana (`invalid_token`), qui réserve ce format aux connexions OAuth (constaté le 23/11/2026).
 4. Vérifier :
 
    ```bash
@@ -120,7 +120,7 @@ Le script vise `https://uthana.com/graphql`, en authentification Basic (clé en 
 - le [client Python officiel](https://github.com/Uthana/uthana-python-client) : noms d'API des modèles 1.0 et 2.0 (`text-to-motion`, `text-to-motion-bucmd`), identifiants des personnages fournis, forme de l'URL de téléchargement, extraction du `motion_id` d'une tâche (`result.result.id`).
 
 Ce qui reste incertain :
-- **Appels réels** : le script n'a pas encore été validé par un appel réel payant ; les commandes gratuites sont à tester avec une clé au bon format (voir Prérequis).
+- **Appels réels** : le script n'a pas encore été validé par un appel réel, gratuit ou payant.
 - **Erreurs de solde** : leur forme exacte n'est pas documentée ; le script les reconnaît par mots-clés (`insufficient`, `balance`…) et par le statut 402.
 - **Débit réel** : déduit du solde avant et après l'opération ; il inclut les autres opérations en cours sur le compte au même moment. `depenses` donne le détail exact.
 - **Nom des animations dans le GLB** : choisi par Uthana ; `inspecter` l'affiche.
