@@ -1,0 +1,17 @@
+{
+  "name": "uthana",
+  "description": "L'API Uthana pour animer les personnages d'un jeu Godot : animations depuis un texte ou une vidéo, locomotion bouclable, boucle et enchaînement, import et rigging automatique d'un personnage (Tripo ou autre), téléchargement retargeté en GLB, FBX ou BVH ; contrôle des animations, import dans Godot et traçabilité de chaque fichier.",
+  "author": {
+    "name": "Quiche Lorraine Games"
+  },
+  "repository": "https://github.com/quiche-lorraine-games/claude-plugins",
+  "keywords": [
+    "uthana",
+    "animation",
+    "text-to-motion",
+    "mocap",
+    "rigging",
+    "godot",
+    "glb"
+  ]
+}

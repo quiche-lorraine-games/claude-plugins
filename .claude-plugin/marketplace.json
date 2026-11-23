@@ -24,6 +24,11 @@
       "name": "steam",
       "source": "./plugins/steam",
       "description": "Steam pour un jeu Godot : référentiel de sortie tiré de la documentation Steamworks (page boutique, calendrier, prix, démo et Next Fest, Steam Deck) et intégration de Steamworks avec GodotSteam (succès, Steam Cloud, clavier virtuel, présence, classements, DLC, multijoueur)."
+    },
+    {
+      "name": "uthana",
+      "source": "./plugins/uthana",
+      "description": "L'API Uthana pour animer les personnages d'un jeu (texte, vidéo, locomotion, boucle, rigging automatique, retargeting), avec rangement et vérification de l'import dans un projet Godot."
     }
   ]
 }
