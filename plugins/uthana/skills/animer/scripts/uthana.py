@@ -400,7 +400,8 @@ def resume_controle(controle):
         return f"⚠ {controle['avertissement']}"
     morceaux = [_taille_lisible(controle.get("taille_octets", 0))]
     for a in controle.get("animations", []):
-        morceaux.append(f"animation « {a['nom']} » {a['duree_s']:.2f} s")
+        nom = f"« {a['nom']} »" if a["nom"] else "sans nom"
+        morceaux.append(f"animation {nom} {a['duree_s']:.2f} s")
     if controle.get("images_par_seconde"):
         morceaux.append(f"{controle['images_par_seconde']} i/s")
     morceaux.append(f"{controle.get('os', 0)} os")
