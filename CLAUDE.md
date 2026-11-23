@@ -19,6 +19,7 @@ Plugins actuels :
 - `plugins/tripo/` : toute l'API Tripo 3D (génération, traitement, animation de modèles) et import dans Godot. Script `skills/generer/scripts/tripo.py` (bibliothèque standard uniquement) ; tests : `python3 -m unittest discover -s plugins/tripo/tests`.
 - `plugins/elevenlabs/` : l'API ElevenLabs pour l'audio d'un jeu (voix, dialogues, bruitages, musique, transcription) et import dans Godot. Script `skills/audio/scripts/elevenlabs.py` (bibliothèque standard uniquement) ; tests : `python3 -m unittest discover -s plugins/elevenlabs/tests`.
 - `plugins/steam/` : Steam pour un jeu Godot. Skill `boutique` : référentiel de préparation de la sortie, tiré de la documentation Steamworks. Skill `godotsteam` : intégration de Steamworks avec GodotSteam, avec un autoload `gabarits/steamworks.gd`. Chaque fiche date son relevé et cite ses pages : en la modifiant, relire les sources et mettre la date à jour.
+- `plugins/uthana/` : l'API Uthana (animation de personnages : texte, vidéo, locomotion, rigging, retargeting) et import dans Godot. Script `skills/animer/scripts/uthana.py` (bibliothèque standard uniquement) ; tests : `python3 -m unittest discover -s plugins/uthana/tests`.
 
 ## Règles
 

@@ -1,0 +1,16 @@
+{
+  "hooks": {
+    "SessionStart": [
+      {
+        "matcher": "startup|clear|compact",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "[ -n \"${UTHANA_API_KEY:-}\" ] || echo \"Plugin uthana actif, mais UTHANA_API_KEY n'est pas définie : la génération d'animations est indisponible (voir le README du plugin uthana).\"",
+            "timeout": 5
+          }
+        ]
+      }
+    ]
+  }
+}
